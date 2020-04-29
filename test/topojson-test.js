@@ -67,8 +67,6 @@ describe('topojson-export.js and topojson-import.js', function () {
     })
   });
 
-
-
   describe('exportProperties', function () {
     it('use id_field option', function () {
       var geometries = [{type: null}, {type: null}],
@@ -203,22 +201,185 @@ describe('topojson-export.js and topojson-import.js', function () {
 
   describe('TopoJSON export', function () {
 
+    it('-o singles option', function(done) {
+      var input = {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'Point',
+          coordinates: [0, 0]
+        }, {
+          type: 'LineString',
+          coordinates: [[1, 1], [2, 2]]
+        }, {
+          type: 'Polygon',
+          coordinates: [[[3, 3], [3, 4], [4, 3], [3, 3]]]
+        }]
+      };
+      var cmd = '-i in.json -rename-layers points,lines,polygons -o format=topojson no-quantization singles';
+      api.applyCommands(cmd, {'in.json': input}, function(err, output) {
+        var points = JSON.parse(output['points.json']);
+        var lines = JSON.parse(output['lines.json']);
+        var polygons = JSON.parse(output['polygons.json']);
+        assert.deepEqual(points.objects.points, {
+          type: 'GeometryCollection',
+          geometries: [{type: 'Point', coordinates: [0, 0]}]
+        });
+        assert.equal(lines.objects.lines.geometries[0].type, 'LineString');
+        assert.equal(lines.objects.lines.geometries.length, 1);
+        assert.equal(polygons.objects.polygons.geometries[0].type, 'Polygon');
+        assert.equal(polygons.objects.polygons.geometries.length, 1);
+        done();
+      });
+
+    });
+
+    describe('-o width= option', function () {
+
+      it('apply width and margin to points', function () {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[1, 1], [2, 2]]
+        }
+        var dataset = api.internal.importGeoJSON(input, {});
+        var opts = {
+          width: 800, margin: 2, bbox: true,
+          no_quantization: true,
+          precision: 0.001 // remove rounding errors
+        };
+        var output = api.internal.exportTopoJSON(dataset, opts);
+        var outputObj = JSON.parse(output[0].content);
+        var target = {
+          type: 'Topology',
+          bbox: [2, 2, 798, 798],
+          arcs: [],
+          objects: {
+            layer1: {
+              type: 'GeometryCollection',
+              geometries: [{
+                type: 'MultiPoint',
+                coordinates: [[2, 798], [798, 2]]
+              }]
+            }
+          }
+        }
+        assert.deepEqual(outputObj, target);
+      })
+    })
+
+    describe('-o height= option', function () {
+
+      it('apply height and margin to points', function () {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[1, 1], [2, 3]]
+        }
+        var dataset = api.internal.importGeoJSON(input, {});
+        var opts = {
+          height: 800, margin: 2, bbox: true,
+          no_quantization: true,
+          precision: 0.001 // remove rounding errors
+        };
+        var output = api.internal.exportTopoJSON(dataset, opts);
+        var outputObj = JSON.parse(output[0].content);
+        var target = {
+          type: 'Topology',
+          bbox: [2, 2, 400, 798],
+          arcs: [],
+          objects: {
+            layer1: {
+              type: 'GeometryCollection',
+              geometries: [{
+                type: 'MultiPoint',
+                coordinates: [[2, 798], [400, 2]]
+              }]
+            }
+          }
+        }
+        assert.deepEqual(outputObj, target);
+      })
+    })
+
+    describe('-o width= and height= options', function () {
+
+      it('content is centered horizontally to fit a wide bbox', function () {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[1, 1], [2, 3]]
+        }
+        var dataset = api.internal.importGeoJSON(input, {});
+        var opts = {
+          height: 80, width: 80, margin: 2, bbox: true,
+          no_quantization: true,
+          precision: 0.001 // remove rounding errors
+        };
+        var output = api.internal.exportTopoJSON(dataset, opts);
+        var outputObj = JSON.parse(output[0].content);
+        var target = {
+          type: 'Topology',
+          bbox: [21, 2, 59, 78],
+          arcs: [],
+          objects: {
+            layer1: {
+              type: 'GeometryCollection',
+              geometries: [{
+                type: 'MultiPoint',
+                coordinates: [[21, 78], [59, 2]]
+              }]
+            }
+          }
+        }
+        assert.deepEqual(outputObj, target);
+      })
+
+      it('content is centered vertically to fit a tall bbox', function () {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[1, 1], [3, 2]]
+        }
+        var dataset = api.internal.importGeoJSON(input, {});
+        var opts = {
+          height: 80, width: 80, margin: 2, bbox: true,
+          no_quantization: true,
+          precision: 0.001 // remove rounding errors
+        };
+        var output = api.internal.exportTopoJSON(dataset, opts);
+        var outputObj = JSON.parse(output[0].content);
+        var target = {
+          type: 'Topology',
+          bbox: [2, 21, 78, 59],
+          arcs: [],
+          objects: {
+            layer1: {
+              type: 'GeometryCollection',
+              geometries: [{
+                type: 'MultiPoint',
+                coordinates: [[2, 59], [78, 21]]
+              }]
+            }
+          }
+        }
+        assert.deepEqual(outputObj, target);
+      })
+
+    })
+
+
     it('default file extension is .json', function(done) {
-      api.applyCommands('-i test/test_data/two_states.shp -o format=topojson', {}, function(err, output) {
+      api.applyCommands('-i test/data/two_states.shp -o format=topojson', {}, function(err, output) {
         assert('two_states.json' in output);
         done();
       })
     })
 
     it('-o extension= overrides default file extension', function(done) {
-      api.applyCommands('-i test/test_data/two_states.shp -o format=topojson extension=TOPOJSON', {}, function(err, output) {
+      api.applyCommands('-i test/data/two_states.shp -o format=topojson extension=TOPOJSON', {}, function(err, output) {
         assert('two_states.TOPOJSON' in output);
         done();
       })
     })
 
     it("export a single point with quantization", function(done) {
-      api.internal.testCommands('-i test/test_data/one_point.geojson', function(err, data) {
+      api.internal.testCommands('-i test/data/one_point.geojson', function(err, data) {
         var topology = TopoJSON.exportTopology(data, {quantization: 10000, bbox:true});
         assert.deepEqual(topology,
     // reference output from topojson program
@@ -229,7 +390,7 @@ describe('topojson-export.js and topojson-import.js', function () {
     })
 
     it("export three points with quantization", function(done) {
-      api.internal.testCommands('-i test/test_data/three_points.geojson', function(err, data) {
+      api.internal.testCommands('-i test/data/three_points.geojson', function(err, data) {
         var topology = TopoJSON.exportTopology(data, {quantization: 10000, bbox:true});
         assert.deepEqual(topology,
   // reference output from topojson program
@@ -372,19 +533,19 @@ describe('topojson-export.js and topojson-import.js', function () {
     });
 
     it('two states', function () {
-      topoJSONRoundTrip('test_data/two_states.json');
+      topoJSONRoundTrip('data/two_states.json');
     })
 
     it('three points', function () {
-      topoJSONRoundTrip('test_data/three_points.geojson');
+      topoJSONRoundTrip('data/three_points.geojson');
     })
 
     it('six counties, two null geometries', function () {
-      topoJSONRoundTrip('test_data/six_counties_three_null.json');
+      topoJSONRoundTrip('data/six_counties_three_null.json');
     })
 
     it('internal state borders (polyline)', function () {
-      topoJSONRoundTrip('test_data/ne/ne_110m_admin_1_states_provinces_lines.json');
+      topoJSONRoundTrip('data/ne/ne_110m_admin_1_states_provinces_lines.json');
     })
   })
 })

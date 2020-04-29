@@ -1,10 +1,11 @@
-/* @requires
-mapshaper-expressions
-mapshaper-dataset-utils
-*/
+import { compileFeatureExpression, compileValueExpression } from '../expressions/mapshaper-expressions';
+import { getFeatureCount } from '../dataset/mapshaper-layer-utils';
+import { getStateVar } from '../mapshaper-state';
+import { DataTable } from '../datatable/mapshaper-data-table';
+import cmd from '../mapshaper-cmd';
 
-api.evaluateEachFeature = function(lyr, arcs, exp, opts) {
-  var n = MapShaper.getFeatureCount(lyr),
+cmd.evaluateEachFeature = function(lyr, arcs, exp, opts) {
+  var n = getFeatureCount(lyr),
       compiled, filter;
 
   // TODO: consider not creating a data table -- not needed if expression only references geometry
@@ -12,9 +13,9 @@ api.evaluateEachFeature = function(lyr, arcs, exp, opts) {
     lyr.data = new DataTable(n);
   }
   if (opts && opts.where) {
-    filter = MapShaper.compileValueExpression(opts.where, lyr, arcs);
+    filter = compileValueExpression(opts.where, lyr, arcs);
   }
-  compiled = MapShaper.compileFeatureExpression(exp, lyr, arcs);
+  compiled = compileFeatureExpression(exp, lyr, arcs, {context: getStateVar('defs')});
   // call compiled expression with id of each record
   for (var i=0; i<n; i++) {
     if (!filter || filter(i)) {

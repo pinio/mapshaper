@@ -13,9 +13,123 @@ function fixPath(p) {
 describe('mapshaper-join.js', function () {
 
   describe('-join command', function () {
-    it('test1', function (done) {
-      var shp = "test/test_data/two_states.shp";
-      var csv = "test/test_data/text/states.csv";
+
+    it('includes source key with fields=* option', function(done) {
+      var a = 'id,name\n1,foo';
+      var b = 'key,score\n1,100';
+      api.applyCommands('a.csv -join b.csv keys=id,key fields=* -o', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        assert.deepEqual(out['a.csv'], 'id,name,key,score\n1,foo,1,100');
+        done();
+      });
+    });
+
+    it('don\'t throw an error if external table is empty', function(done) {
+      var a = 'id,name\n1,foo';
+      var b = 'key,score';
+      api.applyCommands('a.csv -join b.csv keys=id,key fields=* -o', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        assert.deepEqual(out['a.csv'], 'id,name\n1,foo');
+        done();
+      });
+
+    });
+
+    it('error if source and target key fields have different types', function(done) {
+      var a = 'id,name\n1,foo';
+      var b = 'key,score\n1,100';
+      api.applyCommands('a.csv string-fields=id -join b.csv keys=id,key fields=* -o', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        assert(err.message.indexOf('string and number') > -1);
+        done();
+      });
+    })
+
+    it('error if source key field has null values', function(done) {
+      var a = [{id: null, name: 'foo'}];
+      var b = [{key: 1, score: 100}];
+      api.applyCommands('a.json -join b.json keys=id,key fields=* -o', {'a.json': a, 'b.json': b}, function(err, out) {
+        assert(err.message.indexOf('unsupported data type') > -1);
+        done();
+      });
+    })
+
+    it('error if target key field has null values', function(done) {
+      var a = [{id: 1, name: 'foo'}];
+      var b = [{key: null, score: 100}];
+      api.applyCommands('a.json -join b.json keys=id,key fields=* -o', {'a.json': a, 'b.json': b}, function(err, out) {
+        assert(err.message.indexOf('unsupported data type') > -1);
+        done();
+      });
+    })
+
+    it('excludes source key by default', function(done) {
+      var a = 'id\n1';
+      var b = 'key,score\n1,100';
+      api.applyCommands('a.csv -join b.csv keys=id,key -o', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        assert.deepEqual(out['a.csv'], 'id,score\n1,100');
+        done();
+      });
+    });
+
+    it('prefix= option adds prefix to external fields', function(done) {
+      var a = 'id\n1';
+      var b = 'key,score\n1,100';
+      api.applyCommands('a.csv -join b.csv keys=id,key prefix="b-" -o', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        assert.deepEqual(out['a.csv'], 'id,b-score\n1,100');
+        done();
+      });
+    });
+
+    it('prefix= option prevents conflicts', function(done) {
+      var a = 'id,foo\n1,50';
+      var b = 'key,foo\n1,100';
+      api.applyCommands('a.csv -join b.csv keys=id,key prefix="b-" -o', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        assert.deepEqual(out['a.csv'], 'id,foo,b-foo\n1,50,100');
+        done();
+      });
+    });
+
+    it('calc assignments add values to unmatched records', function(done) {
+      var a = 'id\n1\n2';
+      var b = 'id\n1';
+      api.applyCommands('a.csv -join b.csv keys=id,id calc="JOINS=count(), AVG=average(id)" -o format=json', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        var json = JSON.parse(out['a.json']);
+        assert.deepEqual(json, [{id: 1, JOINS: 1, AVG: 1}, {id: 2, JOINS: 0, AVG: null}]);
+        done();
+      });
+    });
+
+    it('calc() assignments supersede fields= assignments', function(done) {
+      var a = 'id\n1\n2';
+      var b = 'id,COUNT\n1,45\n1,35';
+      api.applyCommands('a.csv -join b.csv keys=id,id calc="COUNT=count()" fields=COUNT -o format=json', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        var json = JSON.parse(out['a.json']);
+        assert.deepEqual(json, [{id: 1, COUNT: 2}, {id: 2, COUNT: 0}]);
+        done();
+      });
+    });
+
+    it('fields= option with an empty list copies no fields', function(done) {
+      var a = 'id\n1';
+      var b = 'id,PARTIAL,TOTAL\n1,4,35';
+      api.applyCommands('a.csv -join b.csv keys=id,id calc="COUNT=count()" fields= -o format=json', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        var json = JSON.parse(out['a.json']);
+        assert.deepEqual(json, [{id: 1, COUNT: 1}]);
+        done();
+      });
+    });
+
+    it('calc= functions can use the same field as input and output', function(done) {
+      var a = 'id\n1';
+      var b = 'id,COUNT\n1,4\n1,3';
+      api.applyCommands('a.csv -join b.csv keys=id,id calc="COUNT=sum(COUNT)" -o format=json', {'a.csv': a, 'b.csv': b}, function(err, out) {
+        var json = JSON.parse(out['a.json']);
+        assert.deepEqual(json, [{id: 1, COUNT: 7}]);
+        done();
+      });
+    });
+
+    it('test1, with field-types= option', function (done) {
+      var shp = "test/data/two_states.shp";
+      var csv = "test/data/text/states.csv";
       var cmd = api.utils.format("-i %s -join %s keys=FIPS,STATE_FIPS fields=POP2010,SUB_REGION field-types=STATE_FIPS:str", shp, csv),
           target = [{"STATE_NAME":"Oregon","FIPS":"41","STATE":"OR","LAT":43.94,"LONG":-120.55,"POP2010":3831074,"SUB_REGION":"Pacific"},
           {"STATE_NAME":"Washington","FIPS":"53","STATE":"WA","LAT":47.38,"LONG":-120.00,"POP2010":6724540,"SUB_REGION":"Pacific"}];
@@ -26,9 +140,22 @@ describe('mapshaper-join.js', function () {
       });
     })
 
+    it('test2, with string-fields= option', function (done) {
+      var shp = "test/data/two_states.shp";
+      var csv = "test/data/text/states.csv";
+      var cmd = api.utils.format("-i %s -join %s keys=FIPS,STATE_FIPS fields=POP2010,SUB_REGION string-fields=STATE_FIPS,POP2010", shp, csv),
+          target = [{"STATE_NAME":"Oregon","FIPS":"41","STATE":"OR","LAT":43.94,"LONG":-120.55,"POP2010":"3831074","SUB_REGION":"Pacific"},
+          {"STATE_NAME":"Washington","FIPS":"53","STATE":"WA","LAT":47.38,"LONG":-120.00,"POP2010":"6724540","SUB_REGION":"Pacific"}];
+      api.internal.testCommands(cmd, function(err, data) {
+        if (err) throw err;
+        assert.deepEqual(data.layers[0].data.getRecords(), target);
+        done();
+      });
+    })
+
     it('join layers from two separately loaded datasets', function(done) {
-      var shp = "test/test_data/two_states.shp";
-      var csv = "test/test_data/text/states.csv";
+      var shp = "test/data/two_states.shp";
+      var csv = "test/data/text/states.csv";
       var cmd = api.utils.format("-i %s -i %s field-types=STATE_FIPS:str -join target=two_states states keys=FIPS,STATE_FIPS fields=POP2010,SUB_REGION ", shp, csv);
       var target = [{"STATE_NAME":"Oregon","FIPS":"41","STATE":"OR","LAT":43.94,"LONG":-120.55,"POP2010":3831074,"SUB_REGION":"Pacific"},
           {"STATE_NAME":"Washington","FIPS":"53","STATE":"WA","LAT":47.38,"LONG":-120.00,"POP2010":6724540,"SUB_REGION":"Pacific"}];
@@ -122,7 +249,7 @@ describe('mapshaper-join.js', function () {
         fields: ["CASES"],
         keys: ["STATE", "ST"]
       };
-      api.joinAttributesToFeatures(lyr, new api.internal.DataTable(sourceRecords), opts);
+      api.internal.joinAttributesToFeatures(lyr, new api.internal.DataTable(sourceRecords), opts);
       assert.deepEqual(lyr.data.getRecords(),
           [{ STATE: "CA", CASES: 12}, {STATE: "NV", CASES: 54}]);
     })
@@ -137,7 +264,7 @@ describe('mapshaper-join.js', function () {
       var opts = {
         keys: ["key1", "key2"]
       };
-      api.joinAttributesToFeatures(lyr, new api.internal.DataTable(sourceRecords), opts);
+      api.internal.joinAttributesToFeatures(lyr, new api.internal.DataTable(sourceRecords), opts);
       assert.deepEqual(lyr.data.getRecords(),
           [{ key1: 1, foo: 0}, { key1: 0, foo: 1 }]);
     })
@@ -152,7 +279,7 @@ describe('mapshaper-join.js', function () {
       var opts = {
         keys: ["key1", "key2"]
       };
-      api.joinAttributesToFeatures(lyr, new api.internal.DataTable(sourceRecords), opts);
+      api.internal.joinAttributesToFeatures(lyr, new api.internal.DataTable(sourceRecords), opts);
       assert.deepEqual(lyr.data.getRecords(),
           [{ key1: 1, foo: 0}, { key1: 0, foo: null }]);
     })
@@ -169,7 +296,7 @@ describe('mapshaper-join.js', function () {
       var opts = {
         keys: ["key1", "key2"]
       };
-      api.joinAttributesToFeatures(lyr, sourceTable, opts);
+      api.internal.joinAttributesToFeatures(lyr, sourceTable, opts);
       assert.deepEqual(lyr.data.getRecords(),
           [{ key1: 'a', 'constructor': 'c', 'hasOwnProperty': 'd'}, { key1: 'b', 'constructor': null, 'hasOwnProperty': null }]);
     })
@@ -184,7 +311,7 @@ describe('mapshaper-join.js', function () {
         keys: ['foo', 'shmoo'],
         fields: ['baz']
       };
-      api.joinAttributesToFeatures(target, table2, opts);
+      api.internal.joinAttributesToFeatures(target, table2, opts);
       assert.deepEqual(table1.getRecords(), [{foo: 5, bar: 'a', baz: 'pumpkin'},
             {foo: 5, bar: 'b', baz: 'pumpkin'}]);
     })
@@ -197,7 +324,7 @@ describe('mapshaper-join.js', function () {
         keys: ['foo', 'shmoo'],
         fields: ['baz']
       };
-      api.joinAttributesToFeatures(target, table2, opts);
+      api.internal.joinAttributesToFeatures(target, table2, opts);
       assert.deepEqual(table1.getRecords(), [{foo: 5, bar: 'a', baz: 'pumpkin'},
             {foo: 3, bar: 'b', baz: null}]);
     })
@@ -227,6 +354,15 @@ describe('mapshaper-join.js', function () {
     })
   })
 
+  describe('findCollisionFields()', function() {
+    var src = {foo: null, bar: 'a', baz: 0},
+        dest = {foo: 1, bar: undefined, baz: 0},
+        fields = [];
+    api.internal.findCollisionFields(dest, src, ['foo', 'bar', 'baz'], fields);
+    assert.deepEqual(fields, ['foo', 'bar']);
+
+  });
+
   describe('getFieldsToJoin()', function () {
     it('Use fields option, if present', function () {
       var fields = api.internal.getFieldsToJoin([], ['st', 'co'], {fields: ['st']})
@@ -243,6 +379,16 @@ describe('mapshaper-join.js', function () {
       assert.deepEqual(fields, ['st', 'co']);
     })
 
+    it('Exclude source key, if fields option is missing', function () {
+      var fields = api.internal.getFieldsToJoin([], ['st', 'co'], {keys: ['id', 'st']})
+      assert.deepEqual(fields, ['co']);
+    })
+
+    it('Include source key, if fields option in "*"', function () {
+      var fields = api.internal.getFieldsToJoin([], ['st', 'co'], {fields: ['*'], keys: ['id', 'st']})
+      assert.deepEqual(fields, ['st','co']);
+    })
+
     it('Do not join fields that are already present in dest table', function () {
       var fields = api.internal.getFieldsToJoin(['st'], ['st', 'co'], {})
       assert.deepEqual(fields, ['co']);
@@ -253,9 +399,20 @@ describe('mapshaper-join.js', function () {
       assert.deepEqual(fields, ['st', 'co']);
     })
 
-    it('Do not join all fields by default if calc= option is present', function () {
+    // Changed in v0.74.
+    // it('Do not join all fields by default if calc= option is present', function () {
+    //   var fields = api.internal.getFieldsToJoin([], ['st', 'co'], {calc: 'n=count()'})
+    //   assert.deepEqual(fields, []);
+    // })
+    it('Join all fields by default even if calc= option is present', function () {
       var fields = api.internal.getFieldsToJoin([], ['st', 'co'], {calc: 'n=count()'})
-      assert.deepEqual(fields, []);
+      assert.deepEqual(fields, ['st', 'co']);
+    })
+
+    it('Error if type hints are present', function() {
+      assert.throws(function() {
+        var fields = api.internal.getFieldsToJoin([], ['st', 'co'], {fields: ['st:str']})
+      })
     })
 
   })

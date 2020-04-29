@@ -1,8 +1,10 @@
 var api = require('../'),
   assert = require('assert'),
   fs = require('fs'),
-  format = api.utils.format;
+  format = api.utils.format,
+  mapshaper = api;
 
+var states_shp = "test/data/two_states.shp";
 
 function runFile(cmd, done) {
   var args = require('shell-quote').parse(cmd);
@@ -25,51 +27,74 @@ function runCmd(cmd, input, done) {
   });
 }
 
-describe('User-reported bug: wildcard expansion in Windows', function () {
-  it('files are processed, no error thrown', function (done) {
-    // this duplicates the error (Windows shell doesn't expand wildcards,
-    // but bash does)
-    var cmd = '-i test/test_data/issues/166/*.dbf -o format=csv';
-    api.applyCommands(cmd, {}, function(err, output) {
-      assert(!err);
-      assert('a_utm.csv' in output);
-      assert('b_utm.csv' in output);
-      done();
-    });
-  })
-})
+describe('mapshaper-run-commands.js', function () {
 
-describe('stdin/stdout tests', function() {
-  // Travis fails on these tests -- removing for now.
-  return;
-  it ("pass-through GeoJSON", function(done) {
-    var cmd = "- -o - -verbose"; // -verbose to check that messages aren't sent to stdout
-    var geojson = {"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[0,0]}]};
-    runCmd(cmd, JSON.stringify(geojson), function(err, stdout, stderr) {
-      assert.deepEqual(JSON.parse(stdout), geojson);
-      done();
+  describe('Issue #264 applyCommands()', function() {
+    it ('should throw error if input is a file path, not file content', function(done) {
+      mapshaper.applyCommands('-i input.shp -o out.json', {'input.shp': 'test/data/two_states.shp'}, function(
+        err, output) {
+        assert(!!err);
+        done();
+      });
     });
   })
 
-  it ("pass-through TopoJSON", function(done) {
-    var cmd = "/dev/stdin -info -o /dev/stdout -verbose"; // -info and -verbose to check that messages aren't sent to stdout
-    var json = {type: "Topology",
-      arcs: [],
-      objects: { point: {
-          "type":"GeometryCollection",
-          "geometries":[{"type":"Point","coordinates":[0,0]}]}}
-    };
-
-    runCmd(cmd, JSON.stringify(json), function(err, stdout, stderr) {
-      assert.deepEqual(JSON.parse(stdout), json);
-      done();
-    });
+  describe('User-reported bug: wildcard expansion in Windows', function () {
+    it('files are processed, no error thrown', function (done) {
+      // this duplicates the error (Windows shell doesn't expand wildcards,
+      // but bash does)
+      var cmd = '-i test/data/issues/166/*.dbf -o format=csv';
+      api.applyCommands(cmd, {}, function(err, output) {
+        assert(!err);
+        assert('a_utm.csv' in output);
+        assert('b_utm.csv' in output);
+        done();
+      });
+    })
   })
-})
 
-describe('mapshaper-commands.js', function () {
+  describe('stdin/stdout tests', function() {
+    // Travis fails on these tests -- removing for now.
+    return;
+    it ("pass-through GeoJSON", function(done) {
+      var cmd = "- -o - -verbose"; // -verbose to check that messages aren't sent to stdout
+      var geojson = {"type":"GeometryCollection","geometries":[{"type":"Point","coordinates":[0,0]}]};
+      runCmd(cmd, JSON.stringify(geojson), function(err, stdout, stderr) {
+        assert.deepEqual(JSON.parse(stdout), geojson);
+        done();
+      });
+    })
 
-  var states_shp = "test/test_data/two_states.shp";
+    it ("pass-through TopoJSON", function(done) {
+      var cmd = "/dev/stdin -info -o /dev/stdout -verbose"; // -info and -verbose to check that messages aren't sent to stdout
+      var json = {type: "Topology",
+        arcs: [],
+        objects: { point: {
+            "type":"GeometryCollection",
+            "geometries":[{"type":"Point","coordinates":[0,0]}]}}
+      };
+
+      runCmd(cmd, JSON.stringify(json), function(err, stdout, stderr) {
+        assert.deepEqual(JSON.parse(stdout), json);
+        done();
+      });
+    })
+  })
+
+  describe('context tests', function () {
+    it('context vars are reset after commands run', function (done) {
+      var cmd = '-i test/data/three_points.geojson -verbose';
+      api.runCommands(cmd, function(err) {
+        setTimeout(function() {
+          assert.strictEqual(api.internal.getStateVar('VERBOSE'), false);
+          assert.deepEqual(api.internal.getStateVar('input_files'), []);
+          done();
+        },1);
+        assert.strictEqual(api.internal.getStateVar('VERBOSE'), true);
+        assert.deepEqual(api.internal.getStateVar('input_files'), ['test/data/three_points.geojson']);
+      });
+    })
+  })
 
   describe('layer naming tests', function() {
 
@@ -118,12 +143,75 @@ describe('mapshaper-commands.js', function () {
     });
   });
 
+  describe('applyCommands()', function () {
+    it('Returns a Promise if no callback is passed', function() {
+      var promise = mapshaper.applyCommands('-v');
+      assert(!!promise.then);
+    });
 
-  describe('applyCommands() (v0.4 API)', function () {
+    it('Promise errors on invalid syntax', function(done) {
+      mapshaper.applyCommands('foo').then(function() {
+        done(new Error('expected an error'));
+      }).catch(function(e) {
+        done();
+      });
+    });
 
-    it('missing file', function(done) {
+    it('Promise returns data', function() {
+      var input = [{foo: 'bar'}];
+      return mapshaper.applyCommands('-i foo.json -o', {'foo.json': input}).then(function(data) {
+        var output = JSON.parse(data['foo.json']);
+        assert.deepEqual(output, input);
+      });
+    });
+
+    it('works with -clip command', function(done) {
+
+      var poly = {
+        "type": "Feature",
+        "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+        [
+        [-114.345703125, 39.4369879],
+        [-116.4534998, 37.18979823791],
+        [-118.4534998, 38.17698709],
+        [-115.345703125, 43.576878],
+        [-106.611328125, 43.4529188935547],
+        [-105.092834092, 46.20938402],
+        [-106.66859, 39.4389646],
+        [-103.6117867, 36.436756],
+        [-114.34579879, 39.4361929]
+        ] ]
+        }
+      };
+
+      var clip_poly = {
+        "type": "Feature",
+        "geometry": {
+        "type": "Polygon",
+        "coordinates": [
+        [
+        [-114.345703125, 39.4361929993141],
+        [-114.345703125, 43.4529188935547],
+        [-106.611328125, 43.4529188935547],
+        [-106.611328125, 39.4361929993141],
+        [-114.345703125, 39.4361929993141]
+        ] ]
+        }
+      };
+
+      api.applyCommands('-i poly.json -clip clip_poly.json -o',
+        {'poly.json': poly, 'clip_poly.json': clip_poly}, function(err, output) {
+        assert(!!output && !err);
+        done();
+      })
+    });
+
+
+    it('missing file causes UserError', function(done) {
       api.applyCommands('-i data.csv', {}, function(err, output) {
-        assert(err.name, 'APIError');
+        assert(err.name, 'UserError');
         done();
       })
     });
@@ -139,7 +227,7 @@ describe('mapshaper-commands.js', function () {
     })
 
 
-    it ('multiple files', function(done) {
+    it ('output from sequentially processed files is combined', function(done) {
       var input = {
         'data.csv': 'id\n0\n1',
         'data2.csv': 'id\n2\n3'
@@ -150,6 +238,18 @@ describe('mapshaper-commands.js', function () {
         done();
       })
     })
+
+    it('when two files are processed in sequence and second file triggers error, no output is generated', function(done) {
+      var input = {
+        'data.csv': 'id\n0\n1',
+        'data2.json': '{'
+      };
+      api.applyCommands('-i data.csv data2.json -o', input, function(err, output) {
+        assert.equal(err.name, 'UserError');
+        assert.equal(output, null);
+        done();
+      })
+    });
 
     it ('merge multiple files', function(done) {
       var input = {
@@ -247,8 +347,8 @@ describe('mapshaper-commands.js', function () {
 
     it('accepts Buffer objects as input (Issue #159)', function(done) {
       var fs = require('fs');
-      var shp = fs.readFileSync('test/test_data/three_points.shp');
-      var dbf = fs.readFileSync('test/test_data/three_points.dbf');
+      var shp = fs.readFileSync('test/data/three_points.shp');
+      var dbf = fs.readFileSync('test/data/three_points.dbf');
       var input = {
         'points.shp': shp,
         'points.dbf': dbf
@@ -268,26 +368,6 @@ describe('mapshaper-commands.js', function () {
 
     })
 
-  })
-
-  describe('applyCommands() (<v0.4 API)', function () {
-    it('import GeoJSON points as string', function (done) {
-      var json = fs.readFileSync('test/test_data/three_points.geojson', 'utf8');
-      api.applyCommands('', json, function(err, output) {
-        assert.deepEqual(JSON.parse(json), JSON.parse(output));
-        done();
-      });
-    })
-
-    it('import GeoJSON points as object', function (done) {
-      var json = fs.readFileSync('test/test_data/three_points.geojson', 'utf8');
-      json = JSON.parse(json);
-      api.applyCommands('', json, function(err, output) {
-        assert.deepEqual(JSON.parse(output), json);
-        done();
-      });
-    })
-
     it('convert GeoJSON points to TopoJSON', function (done) {
       var geojson = {
         type: "GeometryCollection",
@@ -300,7 +380,7 @@ describe('mapshaper-commands.js', function () {
         type: "Topology",
         arcs: [],
         objects: {
-          layer1: {
+          point: {
             type: "GeometryCollection",
             geometries: [{
               type: "Point",
@@ -309,42 +389,11 @@ describe('mapshaper-commands.js', function () {
           }
         }
       };
-      api.applyCommands('-o format=topojson precision=1', geojson, function(err, output) {
-        assert.deepEqual(JSON.parse(output), topojson);
+      api.applyCommands('-i data.json name=point -o format=topojson precision=1', {'data.json': geojson}, function(err, output) {
+        assert.deepEqual(JSON.parse(output['data.json']), topojson);
         done();
       });
     })
-
-    it('-o command accepts target= option', function(done) {
-      var topojson = {
-        type: "Topology",
-        arcs: [],
-        objects: {
-          layer1: {
-            type: "GeometryCollection",
-            geometries: [{
-              type: "Point",
-              coordinates: [0, 0]
-            }]
-          },
-          layer2: {
-            type: "GeometryCollection",
-            geometries: [{
-              type: "Point",
-              coordinates: [1, 1]
-            }]
-          }
-        }
-      };
-
-      api.applyCommands('-o target=layer2', topojson, function(err, output) {
-        var obj = JSON.parse(output);
-        assert.equal(obj.objects.layer1, undefined);
-        assert.deepEqual(obj.objects.layer2, topojson.objects.layer2);
-        done();
-      });
-
-    });
 
     it('import GeoJSON points with rounding on import', function (done) {
      var geojson = {
@@ -361,26 +410,73 @@ describe('mapshaper-commands.js', function () {
           coordinates: [0, 0]
         }]
       };
-      api.applyCommands('-i precision=1', geojson, function(err, output) {
-        assert.deepEqual(JSON.parse(output), target);
+      api.applyCommands('-i precision=1 data.json -o', {'data.json': geojson}, function(err, output) {
+        assert.deepEqual(JSON.parse(output['data.json']), target);
         done();
       });
     })
 
     it('invalid dataset gives error', function(done) {
       api.applyCommands('', {}, function(err, output) {
-        assert.equal(err.name, 'APIError');
+        assert.equal(err.name, 'UserError');
         done();
       })
     })
   })
 
+  describe('runCommandsXL()', function () {
+    it('Works with {xl: "4gb"} option + callback', function(done) {
+      mapshaper.runCommandsXL('test/data/three_points.geojson -filter true', {xl: '4gb'}, function(err) {
+        assert(!err);
+        done();
+      });
+    });
+
+    it('Works with no argument', function() {
+      var promise = mapshaper.runCommandsXL('-v');
+      assert(promise.then);
+    });
+
+    it('Works with {xl: 3gb} option + Promise', function() {
+      var promise = mapshaper.runCommandsXL('-v', {xl: "3gb"});
+      assert(promise.then);
+    });
+
+    it('Error on invalid xl option (callback)', function(done) {
+      mapshaper.runCommandsXL('-v', {xl: "1000gb"}, function(err) {
+        assert(!!err);
+        done();
+      });
+    });
+
+    it('Error on invalid xl option (promise)', function(done) {
+      mapshaper.runCommandsXL('-v', {xl: "1000gb"}).then(function() {
+        done(new Error('expected an error'));
+      }).catch(function(e) {
+        done();
+      });
+    });
+  });
+
   describe('runCommands()', function () {
+
+    it('Returns a Promise if no callback is passed', function() {
+      var promise = mapshaper.runCommands('-v');
+      assert(promise.then);
+    });
+
+    it('Promise errors on invalid syntax', function(done) {
+      mapshaper.runCommands('foo').then(function() {
+        done(new Error('expected an error'));
+      }).catch(function(e) {
+        done();
+      });
+    });
 
     it('Error: empty command string', function(done) {
       mapshaper.runCommands("", function(err) {
         assert(!!err);
-        assert.equal(err.name, 'APIError')
+        assert.equal(err.name, 'UserError')
         done();
       });
     })
@@ -394,34 +490,28 @@ describe('mapshaper-commands.js', function () {
 
     it('Error: no dataset, no -i command', function(done) {
       mapshaper.runCommands("-info", function(err) {
-        assert.equal(err.name, 'APIError');
+        assert.equal(err.name, 'UserError');
         done();
-      });
-    });
-
-    it('Error: no callback', function() {
-      assert.throws(function() {
-        mapshaper.runCommands("-v");
       });
     });
 
     it('Error: -i missing a file', function(done) {
       mapshaper.runCommands("-i oops.shp", function(err) {
-        assert.equal(err.name, 'APIError');
+        assert.equal(err.name, 'UserError');
         done();
       });
     });
 
     it('Error: unknown command', function(done) {
       mapshaper.runCommands("-i " + states_shp + " -amplify", function(err) {
-        assert.equal(err.name, 'APIError');
+        assert.equal(err.name, 'UserError');
         done();
       });
     });
 
     it('Error: -join missing a file', function(done) {
       mapshaper.runCommands("-i " + states_shp + " -join oops.json", function(err) {
-        assert.equal(err.name, 'APIError');
+        assert.equal(err.name, 'UserError');
         done();
       });
     });
@@ -431,8 +521,8 @@ describe('mapshaper-commands.js', function () {
   describe('testCommands()', function() {
 
     it('multiple input files are processed in sequence', function(done) {
-      mapshaper.internal.testCommands('-i test/test_data/three_points.geojson test/test_data/one_point.geojson', function(err, dataset) {
-          assert.deepEqual(dataset.info.input_files, ['test/test_data/one_point.geojson' ]);
+      mapshaper.internal.testCommands('-i test/data/three_points.geojson test/data/one_point.geojson', function(err, dataset) {
+          assert.deepEqual(dataset.info.input_files, ['test/data/one_point.geojson' ]);
           assert.equal(dataset.layers[0].name, 'one_point');
           done();
         });

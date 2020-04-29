@@ -1,21 +1,25 @@
-/* @requires mapshaper-common, mapshaper-file-types, mapshaper-option-parser */
+import { isSupportedDelimiter } from '../text/mapshaper-delim-import';
+import { isSupportedOutputFormat } from '../io/mapshaper-file-types';
+import { filenameIsUnsupportedOutputType } from '../io/mapshaper-file-types';
+import { validateEncoding } from '../text/mapshaper-encodings';
+import { error, stop } from '../utils/mapshaper-logging';
+import cli from '../cli/mapshaper-cli-utils';
+import utils from '../utils/mapshaper-utils';
+import { parseLocalPath } from '../utils/mapshaper-filename-utils';
 
-
-function validateHelpOpts(cmd) {
-  var commands = validateCommaSepNames(cmd._[0]);
-  if (commands) {
-    cmd.options.commands = commands;
-  }
-}
-
-function validateInputOpts(cmd) {
+export function validateInputOpts(cmd) {
   var o = cmd.options,
       _ = cmd._;
 
-  if (_[0] == '-' || _[0] == '/dev/stdin') {
-    o.stdin = true;
-  } else if (_.length > 0) {
-    o.files = cli.expandInputFiles(_);
+  if (_.length > 0 && !o.files) {
+    o.files = _;
+  }
+  if (o.files) {
+    o.files = cli.expandInputFiles(o.files);
+    if (o.files[0] == '-' || o.files[0] == '/dev/stdin') {
+      delete o.files;
+      o.stdin = true;
+    }
   }
 
   if ("precision" in o && o.precision > 0 === false) {
@@ -23,86 +27,69 @@ function validateInputOpts(cmd) {
   }
 
   if (o.encoding) {
-    o.encoding = MapShaper.validateEncoding(o.encoding);
+    o.encoding = validateEncoding(o.encoding);
   }
 }
 
-function validateSimplifyOpts(cmd) {
+export function validateSimplifyOpts(cmd) {
   var o = cmd.options,
-      _ = cmd._;
+      arg = cmd._[0];
 
-  if (_.length > 0) {
-    if (/^[0-9.]+%?$/.test(_[0])) {
-      o.percentage = utils.parsePercent(_.shift());
-    }
-    if (_.length > 0) {
-      error("Unparsable option:", _.join(' '));
-    }
-  }
-
-  var intervalStr = o.interval;
-  if (intervalStr) {
-    o.interval = Number(intervalStr);
-    if (o.interval >= 0 === false) {
-      error(utils.format("Out-of-range interval value: %s", intervalStr));
+  if (arg) {
+    if (/^[0-9.]+%?$/.test(arg)) {
+      o.percentage = utils.parsePercent(arg);
+    } else {
+      error("Unparsable option:", arg);
     }
   }
 
-  if (isNaN(o.interval) && !utils.isNumber(o.percentage) && !o.resolution) {
+  // var intervalStr = o.interval;
+  // if (intervalStr) {
+  //   o.interval = Number(intervalStr);
+  //   if (o.interval >= 0 === false) {
+  //     error(utils.format("Out-of-range interval value: %s", intervalStr));
+  //   }
+  // }
+
+  if (!o.interval && !o.percentage && !o.resolution) {
     error("Command requires an interval, percentage or resolution parameter");
   }
 }
 
-function validateJoinOpts(cmd) {
-  var o = cmd.options;
-  o.source = o.source || cmd._[0];
-  if (!o.source) {
-    error("Command requires the name of a layer or file to join");
+export function validateProjOpts(cmd) {
+  var _ = cmd._,
+      proj4 = [];
+
+  if (_.length > 0 && !cmd.options.crs) {
+    cmd.options.crs = _.join(' ');
+    _ = [];
+  }
+
+  // separate proj4 options
+  // _ = _.filter(function(arg) {
+  //   if (/^\+[a-z]/i.test(arg)) {
+  //     proj4.push(arg);
+  //     return false;
+  //   }
+  //   return true;
+  // });
+
+  // if (proj4.length > 0) {
+  //   cmd.options.crs = proj4.join(' ');
+  // } else if (_.length > 0) {
+  //   cmd.options.crs = _.shift();
+  // }
+
+  if (_.length > 0) {
+    error("Received one or more unexpected parameters: " + _.join(', '));
+  }
+
+  if (!(cmd.options.crs || cmd.options.match || cmd.options.from)) {
+    stop("Missing projection data");
   }
 }
 
-function validateSplitOpts(cmd) {
-  if (cmd._.length == 1) {
-    cmd.options.field = cmd._[0];
-  } else if (cmd._.length > 1) {
-    error("Command takes a single field name");
-  }
-}
-
-function validateClipOpts(cmd) {
-  var opts = cmd.options;
-  if (cmd._[0]) {
-    opts.source = cmd._[0];
-  }
-  // rename old option
-  if (opts.cleanup) {
-    delete opts.cleanup;
-    opts.remove_slivers = true;
-  }
-  if (!opts.source && !opts.bbox) {
-    error("Command requires a source file, layer id or bbox");
-  }
-}
-
-function validateDissolveOpts(cmd) {
-  var _= cmd._,
-      o = cmd.options;
-  if (_.length == 1) {
-    o.field = _[0];
-  } else if (_.length > 1) {
-    error("Command takes a single field name");
-  }
-}
-
-function validateMergeLayersOpts(cmd) {
-  if (cmd._.length > 0) error("Unexpected option:", cmd._);
-}
-
-function validateRenameLayersOpts(cmd) {
-  cmd.options.names = validateCommaSepNames(cmd._[0]) || null;
-}
-
-function validateGridOpts(cmd) {
+export function validateGridOpts(cmd) {
   var o = cmd.options;
   if (cmd._.length == 1) {
     var tmp = cmd._[0].split(',');
@@ -111,50 +98,17 @@ function validateGridOpts(cmd) {
   }
 }
 
-function validateLinesOpts(cmd) {
-  try {
-    var fields = validateCommaSepNames(cmd.options.fields || cmd._[0]);
-    if (fields) cmd.options.fields = fields;
-  } catch (e) {
-    error("Command takes a comma-separated list of fields");
-  }
-}
-
-function validateInnerLinesOpts(cmd) {
-  if (cmd._.length > 0) {
-    error("Command takes no arguments");
-  }
-}
-
-function validateSubdivideOpts(cmd) {
-  if (cmd._.length !== 1) {
+export function validateExpressionOpt(cmd) {
+  if (!cmd.options.expression) {
     error("Command requires a JavaScript expression");
   }
-  cmd.options.expression = cmd._[0];
 }
 
-function validateFilterFieldsOpts(cmd) {
-  try {
-    var fields = validateCommaSepNames(cmd._[0]);
-    cmd.options.fields = fields || [];
-  } catch(e) {
-    error("Command requires a comma-sep. list of fields");
-  }
-}
-
-function validateExpressionOpts(cmd) {
-  if (cmd._.length == 1) {
-    cmd.options.expression = cmd._[0];
-  } else if (cmd._.length > 1) {
-    error("Unparsable arguments:", cmd._);
-  }
-}
-
-function validateOutputOpts(cmd) {
+export function validateOutputOpts(cmd) {
   var _ = cmd._,
       o = cmd.options,
       arg = _[0] || "",
-      pathInfo = utils.parseLocalPath(arg);
+      pathInfo = parseLocalPath(arg);
 
   if (_.length > 1) {
     error("Command takes one file or directory argument");
@@ -173,7 +127,7 @@ function validateOutputOpts(cmd) {
       cli.validateOutputDir(o.directory);
     }
     o.file = pathInfo.filename;
-    if (MapShaper.filenameIsUnsupportedOutputType(o.file)) {
+    if (filenameIsUnsupportedOutputType(o.file)) {
       error("Output file looks like an unsupported file type:", o.file);
     }
   }
@@ -187,7 +141,7 @@ function validateOutputOpts(cmd) {
       o.format = 'dsv';
       o.delimiter = o.delimiter || '\t';
     }
-    if (!MapShaper.isSupportedOutputFormat(o.format)) {
+    if (!isSupportedOutputFormat(o.format)) {
       error("Unsupported output format:", o.format);
     }
   }
@@ -195,13 +149,17 @@ function validateOutputOpts(cmd) {
   if (o.delimiter) {
     // convert "\t" '\t' \t to tab
     o.delimiter = o.delimiter.replace(/^["']?\\t["']?$/, '\t');
-    if (!MapShaper.isSupportedDelimiter(o.delimiter)) {
+    if (!isSupportedDelimiter(o.delimiter)) {
       error("Unsupported delimiter:", o.delimiter);
     }
   }
 
   if (o.encoding) {
-    o.encoding = MapShaper.validateEncoding(o.encoding);
+    o.encoding = validateEncoding(o.encoding);
+  }
+
+  if (o.field_order && o.field_order != 'ascending') {
+    error('Unsupported field order:', o.field_order);
   }
 
   // topojson-specific
@@ -212,18 +170,4 @@ function validateOutputOpts(cmd) {
   if ("topojson_precision" in o && o.topojson_precision > 0 === false) {
     error("topojson-precision= option should be a positive number");
   }
-}
-
-// Convert a comma-separated string into an array of trimmed strings
-// Return null if list is empty
-function validateCommaSepNames(str, min) {
-  if (!min && !str) return null; // treat
-  if (!utils.isString(str)) {
-    error ("Expected a comma-separated list; found:", str);
-  }
-  var parts = str.split(',').map(utils.trim).filter(function(s) {return !!s;});
-  if (min && min > parts.length < min) {
-    error(utils.format("Expected a list of at least %d member%s; found: %s", min, utils.pluralSuffix(min), str));
-  }
-  return parts.length > 0 ? parts : null;
 }

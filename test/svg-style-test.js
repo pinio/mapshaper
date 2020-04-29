@@ -2,6 +2,32 @@ var api = require('../'),
     assert = require('assert');
 
 describe('mapshaper-svg-style.js', function () {
+
+  describe('command line tests', function() {
+    it('-svg-style (old name) works', function(done) {
+      var input = [{
+        name: 'foo'
+      }];
+      api.applyCommands('-i data.json -svg-style r=2 -o', {'data.json': input}, function(err, out) {
+        var result = JSON.parse(out['data.json']);
+        assert.deepEqual(result, [{name: 'foo', r: 2}]);
+        done();
+      });
+    })
+
+    it('-style (new name) works', function(done) {
+      var input = [{
+        name: 'foo'
+      }];
+      api.applyCommands('-i data.json -style r=2 -o', {'data.json': input}, function(err, out) {
+        var result = JSON.parse(out['data.json']);
+        assert.deepEqual(result, [{name: 'foo', r: 2}]);
+        done();
+      });
+    })
+  })
+
+
   describe('isSvgColor()', function () {
     var isSvgColor = api.internal.isSvgColor;
     it('hits', function () {
@@ -12,7 +38,6 @@ describe('mapshaper-svg-style.js', function () {
       assert(isSvgColor('rgba(0, 255, 92, 0.2)'))
     })
     it('misses', function() {
-      assert.equal(isSvgColor('area', ['population', 'area']), false)
       assert.equal(isSvgColor('#'), false)
       assert.equal(isSvgColor('33'), false)
     })
@@ -42,7 +67,6 @@ describe('mapshaper-svg-style.js', function () {
       assert(isSvgClassName('class-0'))
     })
     it('misses', function () {
-      assert.equal(isSvgClassName('somefield', ['somefield']), false)
       assert.equal(isSvgClassName('-somevar'), false)
       assert.equal(isSvgClassName(''), false)
       assert.equal(isSvgClassName('5'), false)
@@ -50,6 +74,12 @@ describe('mapshaper-svg-style.js', function () {
   })
 
   describe('svgStyle()', function () {
+    it('label-text expression detection', function() {
+      var records = [{foo: 'a'}, {foo: 'b'}];
+      var lyr = {data: new api.internal.DataTable(records)};
+
+    })
+
     it('expressions', function () {
       var records = [{foo: 2, bar: 'a', baz: 'white'}, {foo: 0.5, bar: 'b', baz: 'black'}]
       var lyr = {
@@ -57,7 +87,7 @@ describe('mapshaper-svg-style.js', function () {
       };
       var opts = {
         stroke: 'baz',
-        stroke_width: 'foo / 2',
+        'stroke-width': 'foo / 2',
         fill: 'bar == "a" ? "pink" : "green"'
       };
       var target = [{
@@ -65,14 +95,14 @@ describe('mapshaper-svg-style.js', function () {
         bar: 'a',
         baz: 'white',
         stroke: 'white',
-        stroke_width: 1,
+        'stroke-width': 1,
         fill: 'pink'
       }, {
         foo: 0.5,
         bar: 'b',
         baz: 'black',
         stroke: 'black',
-        stroke_width: 0.25,
+        'stroke-width': 0.25,
         fill: 'green'
       }];
       api.svgStyle(lyr, {}, opts);
@@ -86,16 +116,68 @@ describe('mapshaper-svg-style.js', function () {
       };
       var opts = {
         stroke: '#222222',
-        stroke_width: '4',
+        'stroke-width': '4',
         fill: 'rgba(255,255,255,0.2)'
       };
       var target = [{
         stroke: '#222222',
-        stroke_width: 4,
+        'stroke-width': 4,
         fill: 'rgba(255,255,255,0.2)'
       }];
       api.svgStyle(lyr, {}, opts);
       assert.deepEqual(lyr.data.getRecords(), target);
     })
+
+    it('literals 2', function() {
+      var records = [{}]
+      var lyr = {
+        data: new api.internal.DataTable(records)
+      };
+      var opts = {
+        stroke: 'red',
+        label_text: 'green',
+        fill: 'SteelBlue'
+      };
+      var target = [{
+        stroke: 'red',
+        'label-text': 'green',
+        fill: 'SteelBlue'
+      }];
+      api.svgStyle(lyr, {}, opts);
+      assert.deepEqual(lyr.data.getRecords(), target);
+    })
+
+    it('literals 3', function() {
+      var records = [{}]
+      var lyr = {
+        data: new api.internal.DataTable(records)
+      };
+      var opts = {
+        label_text: 'National Oceanic and Atmospheric Administration (NOAA)',
+        font_family: 'Helvetica,_sans'
+      };
+      var target = [{
+        'label-text': 'National Oceanic and Atmospheric Administration (NOAA)',
+        'font-family': 'Helvetica,_sans'
+      }];
+      api.svgStyle(lyr, {}, opts);
+      assert.deepEqual(lyr.data.getRecords(), target);
+    });
+
+    it('literals 4', function() {
+      var records = [{}]
+      var lyr = {
+        data: new api.internal.DataTable(records)
+      };
+      var opts = {
+        label_text: 'dane © OpenStreetMap (licencja ODBL)' // issue 363
+      };
+      var target = [{
+        'label-text': 'dane © OpenStreetMap (licencja ODBL)'
+      }];
+      api.svgStyle(lyr, {}, opts);
+      assert.deepEqual(lyr.data.getRecords(), target);
+    });
+
   })
 });

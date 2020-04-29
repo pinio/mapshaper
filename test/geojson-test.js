@@ -10,19 +10,101 @@ function fixPath(p) {
 
 describe('mapshaper-geojson.js', function () {
 
+  describe('getDatasetBbox()', function() {
+
+    describe('RFC 7946 bbox', function() {
+      function getBbox(geojson) {
+        var d = api.internal.importGeoJSON(geojson, {});
+        return api.internal.getDatasetBbox(d, true);
+      }
+
+      it('wrapped bbox 1', function() {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[-170, 0], [170, 0]]
+        }
+        assert.deepEqual(getBbox(input), [170, 0, -170, 0]);
+      })
+
+      it('wrapped bbox2', function() {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[-180, 0], [180, 1], [10, -1]]
+        }
+        assert.deepEqual(getBbox(input), [10, -1, -180, 1]);
+      })
+
+      it('wrapped bbox 3 (lines)', function() {
+        var input = {
+          type: 'MultiLineString',
+          coordinates: [[[-180, 0], [-170, 1]], [[170, -1], [175, -2]]]
+        }
+        assert.deepEqual(getBbox(input), [170, -2, -170, 1]);
+      })
+
+      it('non-wrapped points: Western Hemisphere', function() {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[-170, 0], [-180, 1], [-90, -1]]
+        }
+        assert.deepEqual(getBbox(input), [-180, -1, -90, 1]);
+      })
+
+      it('non-wrapped points: Eastern Hemisphere', function() {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[170, 0], [180, 1], [90, -1]]
+        }
+        assert.deepEqual(getBbox(input), [90, -1, 180, 1]);
+      })
+
+      it('non-wrapped points 3', function() {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[100, 0], [0, 1], [-100, -1]]
+        }
+        assert.deepEqual(getBbox(input), [-100, -1, 100, 1]);
+      })
+
+      it('null bbox', function() {
+        var input = {
+          type: 'GeometryCollection',
+          geometries: []
+        }
+        assert.strictEqual(getBbox(input), null);
+      })
+
+    });
+
+  });
+
+
   describe('importGeoJSON', function () {
     it('Import FeatureCollection with polygon geometries', function () {
-      var data = api.importFile(fixPath('test_data/two_states.json'))
+      var data = api.importFile(fixPath('data/two_states.json'))
       assert.equal(data.layers[0].shapes.length, 2);
       assert.equal(data.layers[0].data.size(), 2);
     })
 
     it('Import FeatureCollection with three null geometries', function () {
-      var data = api.importFile(fixPath('test_data/six_counties_three_null.json'), 'geojson');
+      var data = api.importFile(fixPath('data/six_counties_three_null.json'), 'geojson');
       assert.equal(data.layers[0].data.size(), 6);
       assert.equal(data.layers[0].shapes.length, 6);
       assert.equal(data.layers[0].shapes.filter(function(shape) {return shape != null}).length, 3)
       assert.deepEqual(Utils.pluck(data.layers[0].data.getRecords(), 'NAME'), ["District of Columbia", "Arlington", "Fairfax County", "Alexandria", "Fairfax City", "Manassas"]);
+    })
+
+    it('Able to import GeometryCollection containing null geometry (non-standard)', function() {
+      var geojson = {
+        type: 'GeometryCollection',
+        geometries: [
+          null,
+          {type: 'Point', coordinates: [1, 1]}
+        ]
+      };
+      var dataset = api.internal.importGeoJSON(geojson, {});
+      assert.deepEqual(dataset.layers[0].shapes, [null, [[1, 1]]]);
+
     })
 
     it('Able to import Feature containing GeometryCollection of same-type objects', function() {
@@ -159,7 +241,7 @@ describe('mapshaper-geojson.js', function () {
         }
       };
       var dataset = api.internal.importGeoJSON(src, {});
-      var output = api.internal.exportGeoJSONCollection(dataset.layers[0], dataset);
+      var output = api.internal.exportDatasetAsGeoJSON(dataset, {});
       assert.deepEqual(output.features[0], target);
     })
   })
@@ -167,8 +249,217 @@ describe('mapshaper-geojson.js', function () {
 
   describe('exportGeoJSON()', function () {
 
+    describe('-o geojson-type= option', function() {
+
+      it('geojson-type=Feature, no attributes', function() {
+        var input = {type: 'Point', coordinates: [0, 0]};
+        var output = api.internal.exportGeoJSON(api.internal.importGeoJSON(input, {}), {geojson_type: 'Feature'})[0].content;
+        assert.deepEqual(JSON.parse(output), {
+          type: 'Feature',
+          properties: null,
+          geometry: {
+            type: 'Point',
+            coordinates: [0, 0]
+          }
+        });
+      });
+
+      it('geojson-type=FeatureCollection, no attributes', function() {
+        var input = {type: 'Point', coordinates: [0, 0]};
+        var output = api.internal.exportGeoJSON(api.internal.importGeoJSON(input, {}), {geojson_type: 'FeatureCollection'})[0].content;
+        assert.deepEqual(JSON.parse(output), {
+          type: 'FeatureCollection',
+          features: [{
+            type: 'Feature',
+            properties: null,
+            geometry: {
+              type: 'Point',
+              coordinates: [0, 0]
+            }
+          }]
+        });
+      });
+
+      it('geojson-type=GeometryCollection (data has attributes)', function() {
+        var input = {type: 'Feature', properties: {name: 'foo'}, geometry: {type: 'Point', coordinates: [0, 0]}};
+        var output = api.internal.exportGeoJSON(api.internal.importGeoJSON(input, {}), {geojson_type: 'GeometryCollection'})[0].content;
+        assert.deepEqual(JSON.parse(output), {
+          type: 'GeometryCollection',
+          geometries: [ {
+            type: 'Point',
+            coordinates: [0, 0]
+          }]
+        });
+      });
+
+    });
+
+    describe('-o rfc7946 option', function () {
+
+      it('Default coordinate precision is 6 decimals', function() {
+        var input = {
+          type: 'MultiPoint',
+          coordinates: [[4.000000000000001, 3.999999999999], [0.123456789,-9.87654321]]
+        };
+        var output = api.internal.exportGeoJSON(api.internal.importGeoJSON(input, {}), {rfc7946: true})[0].content.toString();
+        var coords = output.match(/"coordinates.*\]\]/)[0];
+        assert.equal(coords, '"coordinates":[[4,4],[0.123457,-9.876543]]');
+      });
+
+      it('A warning is generated for non-lat-long datasets', function() {
+        var input = {
+          type: 'Point',
+          coordinates: [100, 100]
+        },
+        dataset = api.internal.importGeoJSON(input, {});
+        assert(/RFC 7946 warning/.test(api.internal.getRFC7946Warnings(dataset)));
+      })
+
+      it('Use CCW winding order for rings and CW for holes', function (done) {
+        var input = {
+          type:"GeometryCollection",
+          geometries:[{
+            type: "Polygon",
+            coordinates: [[[100.0, 0.0], [100.0, 10.0], [110.0, 10.0], [110.0, 0.0], [100.0, 0.0]],
+              [[101.0, 1.0], [109.0, 1.0], [109.0, 9.0], [101.0, 9.0], [101.0, 1.0]]
+            ]
+        }]};
+
+        var target = [[[100.0, 0.0], [110.0, 0.0], [110.0, 10.0], [100.0, 10.0], [100.0, 0.0]],
+              [[101.0, 1.0],  [101.0, 9.0], [109.0, 9.0], [109.0, 1.0], [101.0, 1.0]]
+            ];
+
+        api.applyCommands('-i input.json -o output.json rfc7946', {'input.json': input}, function(err, output) {
+          var json = JSON.parse(output['output.json']);
+          assert.deepEqual(json.geometries[0].coordinates, target);
+          done();
+        });
+
+      })
+    })
+
+    describe('-i geometry-type option', function () {
+      it('filters geometry types inside nested GeometryCollection', function (done) {
+        var geo = {
+          type: 'GeometryCollection',
+          geometries: [{
+            type: 'GeometryCollection',
+            geometries: [{
+              type: 'Point',
+              coordinates: [0, 0]
+            }, {
+              type: 'LineString',
+              coordinates: [[1, 1], [0, 1]]
+            }, {
+              type: 'Polygon',
+              coordinates: [[[5, 5], [5, 6], [6, 6], [5, 5]]]
+            }]
+          }]
+        };
+        var expect = {
+          type: 'GeometryCollection',
+          geometries: [{
+            type: 'Point',
+            coordinates: [0, 0]
+          }]
+        }
+        api.applyCommands('-i geo.json geometry-type=point -o', {'geo.json': geo}, function(err, output) {
+          var geom = JSON.parse(output['geo.json']);
+          assert.deepEqual(geom, expect)
+          done();
+        });
+      })
+    })
+
+    describe('-o combine-layers option', function () {
+      it('combines datasets derived from same input file', function(done) {
+        var a = {
+          type: 'Feature',
+          properties: {foo: 'a'},
+          geometry: {
+            type: 'LineString',
+            coordinates: [[0, 0], [1, 1]]
+          }
+        };
+        api.applyCommands('-i a.json -filter true + name=a2 -o combine-layers', {'a.json': a}, function(err, output) {
+          assert.deepEqual(JSON.parse(output['a.json']), {
+            type: 'FeatureCollection',
+            features: [a, a]
+          });
+          done();
+        });
+
+      });
+
+      it('combines datasets of different types from different sources', function (done) {
+        var a = {
+          type: 'Feature',
+          properties: {foo: 'a'},
+          geometry: {
+            type: 'LineString',
+            coordinates: [[0, 0], [1, 1]]
+          }
+        };
+        var b = {
+          type: 'Point',
+          coordinates: [2, 2]
+        };
+        api.applyCommands('-i a.json -i b.json -o combine-layers c.json', {'a.json': a, 'b.json': b}, function(err, output) {
+          assert('c.json' in output);
+          assert.deepEqual(JSON.parse(output['c.json']), {
+            type: 'FeatureCollection',
+            features: [a,
+              {
+                type: 'Feature',
+                properties: null,
+                geometry: b
+              }]
+          });
+          done();
+        });
+      })
+
+      it('generated GeometryCollection when none of the layers have attribute data', function(done) {
+        var a = {
+          type: 'LineString',
+          coordinates: [[0, 0], [1, 1]]
+        };
+        var b = {
+          type: 'Polygon',
+          coordinates: [[[2, 2], [2, 3], [3, 2], [2, 2]]]
+        };
+        api.applyCommands('-i a.json b.json combine-files -o combine-layers', {'a.json': a, 'b.json': b}, function(err, output) {
+          assert.deepEqual(JSON.parse(output['output.json']), {
+            type: 'GeometryCollection',
+            geometries: [a, b]
+          });
+          done();
+        });
+      })
+
+      it('respects -o target= option', function(done) {
+        var a = {
+          type: 'LineString',
+          coordinates: [[0, 0], [1, 1]]
+        };
+        var b = {
+          type: 'Polygon',
+          coordinates: [[[2, 2], [2, 3], [3, 2], [2, 2]]]
+        };
+        api.applyCommands('-i a.json b.json combine-files -o target=a combine-layers', {'a.json': a, 'b.json': b}, function(err, output) {
+          assert.deepEqual(JSON.parse(output['a.json']), {
+            type: 'GeometryCollection',
+            geometries: [a]
+          });
+          done();
+        });
+
+      })
+
+    })
+
     it('default file extension is .json', function(done) {
-      api.applyCommands('-i test/test_data/two_states.json -o', {}, function(err, output) {
+      api.applyCommands('-i test/data/two_states.json -o', {}, function(err, output) {
         assert('two_states.json' in output);
         done();
       })
@@ -176,7 +467,7 @@ describe('mapshaper-geojson.js', function () {
     })
 
     it('-o extension= overrides default file extension', function(done) {
-      api.applyCommands('-i test/test_data/two_states.json -o extension=geojson', {}, function(err, output) {
+      api.applyCommands('-i test/data/two_states.json -o extension=geojson', {}, function(err, output) {
         assert('two_states.geojson' in output);
         done();
       })
@@ -194,7 +485,7 @@ describe('mapshaper-geojson.js', function () {
         {type: 'Feature', geometry: null, properties: {foo: 'a'}}
       ]};
 
-      assert.deepEqual(api.internal.exportGeoJSONCollection(lyr, dataset), target);
+      assert.deepEqual(api.internal.exportDatasetAsGeoJSON(dataset, {}), target);
     })
 
     it('collapsed polygon exported as null geometry', function () {
@@ -213,7 +504,7 @@ describe('mapshaper-geojson.js', function () {
         {type: 'Feature', properties: {ID: 1}, geometry: null}
       ]};
 
-      assert.deepEqual(api.internal.exportGeoJSONCollection(lyr, dataset), target);
+      assert.deepEqual(api.internal.exportDatasetAsGeoJSON(dataset, {}), target);
     })
 
     it('use cut_table option', function () {
@@ -289,7 +580,7 @@ describe('mapshaper-geojson.js', function () {
         bbox: [0, 1, 2, 4]
       };
 
-      var result = api.internal.exportGeoJSONCollection(lyr, dataset, {bbox: true});
+      var result = api.internal.exportDatasetAsGeoJSON(dataset, {bbox: true});
       assert.deepEqual(result, target);
     })
 
@@ -315,7 +606,7 @@ describe('mapshaper-geojson.js', function () {
         ]
         , bbox: [-1, 0, 2, 3]
       };
-      var result = api.internal.exportGeoJSONCollection(lyr, dataset, {bbox: true});
+      var result = api.internal.exportDatasetAsGeoJSON(dataset, {bbox: true});
       assert.deepEqual(result, target);
     })
 
@@ -338,7 +629,7 @@ describe('mapshaper-geojson.js', function () {
           }
         }]
       };
-      var result = api.internal.exportGeoJSONCollection(lyr, dataset, {id_field: 'FID'});
+      var result = api.internal.exportDatasetAsGeoJSON(dataset, {id_field: 'FID'});
       assert.deepEqual(result, target);
     })
 
@@ -508,7 +799,7 @@ describe('mapshaper-geojson.js', function () {
     })
 
     it('reversed ring with duplicate points is not removed (#42)', function() {
-      var geoStr = api.cli.readFile(fixPath("test_data/ccw_polygon.json"), 'utf8'),
+      var geoStr = api.cli.readFile(fixPath("data/ccw_polygon.json"), 'utf8'),
           outputObj = importExport(geoStr);
       assert.ok(outputObj.features[0].geometry != null);
     })
@@ -562,15 +853,15 @@ describe('mapshaper-geojson.js', function () {
   describe('Export/Import roundtrip tests', function () {
 
     it('two states', function () {
-      geoJSONRoundTrip('test_data/two_states.json');
+      geoJSONRoundTrip('data/two_states.json');
     })
 
     it('six counties, two null geometries', function () {
-      geoJSONRoundTrip('test_data/six_counties_three_null.json');
+      geoJSONRoundTrip('data/six_counties_three_null.json');
     })
 
     it('Internal state borders (polyline)', function () {
-      geoJSONRoundTrip('test_data/ne/ne_110m_admin_1_states_provinces_lines.json');
+      geoJSONRoundTrip('data/ne/ne_110m_admin_1_states_provinces_lines.json');
     })
     /* */
   })
@@ -579,15 +870,15 @@ describe('mapshaper-geojson.js', function () {
 function geoJSONRoundTrip(fname) {
   var data = api.importFile(fixPath(fname));
   var files = api.internal.exportFileContent(data, {format:'geojson'});
-  var data2 = api.internal.importFileContent(files[0].content, 'json');
+  var json = files[0].content.toString();
+  var data2 = api.internal.importFileContent(json, 'json');
   var files2 = api.internal.exportFileContent(data2, {format:'geojson'});
-
-  assert.equal(files2[0].content, files[0].content);
-  // assert.equal(files2[0].filename, files[0].filename); // these are different
+  var json2 = files2[0].content.toString();
+  assert.equal(json, json2);
 }
 
 function importExport(obj, noTopo) {
   var json = Utils.isString(obj) ? obj : JSON.stringify(obj);
   var geom = api.internal.importFileContent(json, 'json', {no_topology: noTopo});
-  return api.internal.exportGeoJSONCollection(geom.layers[0], geom);
+  return api.internal.exportDatasetAsGeoJSON(geom, {});
 }

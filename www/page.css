@@ -5,16 +5,34 @@
 @font-face {
   font-family: 'Source Sans Pro';
   font-style: normal;
-  font-weight: 400;
-  src: local('Source Sans Pro'), local('SourceSansPro-Regular'), url(SourceSansPro-Regular.woff) format('woff');
+  font-weight: normal;
+  src: local('Source Sans Pro'), local('SourceSansPro-Regular'), url('assets/SourceSansPro-Regular.woff') format('woff');
 }
 
 @font-face {
   font-family: 'Source Sans Pro';
   font-style: normal;
-  font-weight: 600;
-  src: local('Source Sans Pro Semibold'), local('SourceSansPro-Semibold'), url(SourceSansPro-Semibold.woff) format('woff');
+  font-weight: bold;
+  src: local('Source Sans Pro Semibold'), local('SourceSansPro-Semibold'), url('assets/SourceSansPro-Semibold.woff') format('woff');
 }
+
+/*
+@font-face {
+	font-family: 'Iosevka';
+	src: url('assets/iosevka-regular.woff2') format('woff2'), url('assets/iosevka-regular.woff') format('woff');
+}
+
+@font-face {
+	font-family: 'Iosevka';
+	src: url('assets/iosevka-slab-light.woff2') format('woff2'), url('assets/iosevka-slab-light.woff') format('woff');
+}
+*/
+
+@font-face {
+	font-family: 'Iosevka';
+	src: url('assets/iosevka-light.woff2') format('woff2'), url('assets/iosevka-light.woff') format('woff');
+}
+
 
 html, body {
 	height: 100%;
@@ -53,7 +71,6 @@ body {
 	color: #0774a5;
 }
 
-
 .dot-underline {
 	border-bottom: 1px dotted #0774a5;
 }
@@ -63,7 +80,9 @@ body {
 }
 
 .dialog-btn:hover,
-.header-btn:hover {
+.header-btn:hover,
+.dialog-btn.default-btn,
+.dialog-btn.selected-btn {
 	background-color: #0F5A84;
 }
 
@@ -119,11 +138,11 @@ body {
 
 .theme3 .page-header,
 .theme3 .dialog-btn {
-	background-color: #8c8c8c;
+	background-color: #376E7F;
 }
 
 .theme3 .nav-btn * {
-	fill: #8c8c8c;
+	fill: #376E7F;
 }
 
 .theme3 .nav-btn.selected {
@@ -132,7 +151,7 @@ body {
 
 .theme3 .dialog-btn:hover,
 .theme3 .header-btn:hover {
-	background-color: #555;
+	background-color: #1D5760;
 }
 
 /* --- Page header --------------- */
@@ -147,21 +166,20 @@ body {
 	height: 32px;
 }
 
-#coordinate-info {
+.coordinate-info {
 	z-index: 1;
 	position: absolute;
 	bottom: 6px;
 	left: 6px;
 	padding: 2px 5px 2px 5px;
 	font-size: 11px;
+	pointer-events: none;
 }
-
-
 
 .mapshaper-logo {
 	font-weight: bold;
 	font-size: 18px;
-	margin: 2px 0 0 12px;
+	margin: 3px 0 0 12px;
 }
 
 .mapshaper-logo .logo-highlight {
@@ -172,13 +190,13 @@ body {
 	text-decoration: none;
 }
 
-#mode-buttons {
+.page-header-buttons {
 	z-index: 20;
 	position: absolute;
 	top: 0px;
 	right: 0px;
 	display: none;
-	margin: 0 8px 3px 0;
+	margin: 0 8px 3px 0;	
 }
 
 .separator {
@@ -187,26 +205,53 @@ body {
 	margin: 0 2px 0 2px;
 }
 
+/* --- Selection tool dialog --------- */
+
+.selection-tool-options {
+	pointer-events: none;
+}
+
+.selection-tool-options .btn {
+	pointer-events: initial;
+}
+
+/* --- Box tool dialog --------- */
+.box-tool-options {
+	pointer-events: none;
+}
+
+.box-tool-options .btn {
+	pointer-events: initial;
+}
+
+.box-tool-options .info-box {
+	text-align: center;
+}
+
+.box-tool-options .box-coords {
+	pointer-events: initial;
+}
+
 /* --- Export dialog --------- */
 
-#export-options .dialog-btn {
+.export-options .dialog-btn {
 	min-width: 20px;
 	padding: 4px 6px 5px 6px;
 }
 
-#export-layer-list {
+.export-layer-list {
 	max-height: 160px;
 	overflow: hidden;
 	overflow-y: auto;
 	margin-right: -13px;
 }
 
-#export-layer-list > div {
+.export-layer-list > div {
 	white-space: nowrap;
 }
 
-#export-options .option-menu .advanced-options {
-	width: 190px;
+.export-options .option-menu .advanced-options {
+	width: 175px;
 }
 
 /* --- Main area ------------- */
@@ -217,12 +262,11 @@ body {
 	right: 0;
 	bottom: 0;
 	left: 0;
-	margin: 32px 0 0 0;	
+	margin: 32px 0 0 0;
 }
 
 
 /* --- Error message ---------- */
-
 
 .error-wrapper {
 	z-index: 120;
@@ -236,7 +280,8 @@ body {
 
 div.error-box {
 	margin-top: 55px;
-	/* padding: 8px 12px 10px 12px; */
+	overflow: auto;
+	max-height: 70%;
 	max-width: 400px;
 	font-size: 16px;
 }
@@ -245,31 +290,166 @@ div.error-box > div {
 
 }
 
+/* --- Splash screen -------------- */
 
-/* --- Import screen -------------- */
-
-#fork-me {
-	background-image: url("images/fork-me-right-graphite@2x.png");
-    background-size: 149px 149px;
-	position: absolute;
-	z-index: 110;
-	top: 0;
-	right: 0;
-	border: 0;
-	width: 149px;
-	height: 149px;
+.splash-screen #splash-screen {
+	display: block;
 }
 
-#import-options.first-run {
-	background-color: #eee;
+.splash-screen #splash-buttons {
+	display: block;
 }
 
-#import-options:not(.first-run) #import-intro {
+.queued-files.splash-screen #import-options-drop-area {
+	display: block;
+	z-index: 2;
+}
+
+#import-options-drop-area .drop-area {
+	height: 100%;
+}
+
+#splash-screen {
+	z-index: 1;
+	text-align: center;
+	font-size: 15px;
 	display: none;
 }
 
+#splash-screen, #import-options-drop-area {
+	background-color: #def1f9;
+}
+
+#splash-screen .subtitle {
+	color: #777;
+}
+
+.splash-screen #import-options .info-box {
+	margin-top: 40px;
+}
+
+.queued-files #import-options {
+	display: block;
+}
+
+#splash-screen *,
+#import-options-drop-area * {
+	box-sizing: border-box;
+}
+
+.drop-area {
+	border: 2px dashed #a2a2a2;
+	border-radius: 19px;
+	background-color: #f8fdff;
+	overflow: hidden;
+}
+
+#splash-screen .drop-area.dragover,
+body.dragover #import-options-drop-area .drop-area {
+	border-color: #333;
+}
+
+#drop-areas {
+	margin-top: 30px;
+}
+
+.drop-area-wrapper {
+	padding: 16px 16px 15px 16px;
+}
+
+.catalog-mode #import-drop,
+.catalog-mode #import-quick-drop,
+.catalog-mode .file-catalog {
+	height: 32%;
+}
+
+#import-drop {
+	height: 61.6%;
+}
+
+#import-quick-drop {
+	height: 37%;
+}
+
+.queued-files #splash-screen {
+	display: none;
+}
+
+/* between the two drop areas */
+#splash-screen .spacer {
+	height: 1.6%;
+}
+
+#splash-screen h3 {
+	margin: 11px 0 0 0;
+	color: #333;
+	font-size: 18px;
+}
+
+#splash-screen h4 {
+	color: #333;
+	font-size: 17px;
+	margin: 11px 0 0 0;
+}
+
+#file-selection-btn.inline-btn {
+	padding: 2px 4px 3px 3px;
+}
+
+/* --- File catalog --------------- */
+
+.catalog-mode .file-catalog,
+.catalog-mode .file-catalog-spacer {
+	display: block;
+}
+
+.catalog-area {
+	overflow: hidden;
+	border: 1.5px solid #aaa;
+	border-radius: 19px;
+	background-color: #f8fdff;
+}
+
+.file-catalog table {
+	margin: 0;
+	border-collapse: collapse;
+	height: 100%;
+	width: 100%;
+}
+
+.file-catalog th {
+	vertical-align: top;
+	height: 40px;
+}
+
+.file-catalog,
+.file-catalog-spacer {
+	display: none;
+}
+
+.file-catalog td {
+	margin: 0;
+	cursor: pointer;
+	vertical-align: top;
+}
+
+.file-catalog td:hover {
+	background-color: #e2e2e2;
+}
+
+.file-catalog.downloading td.downloading {
+	background-color: #d5d5d5;
+	background-size: 0% 100%;
+	background-repeat: no-repeat;
+	background-position: top left;
+	background-image: url(data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAIAAAACCAMAAABFaP0WAAAAGXRFWHRTb2Z0d2FyZQBBZG9iZSBJbWFnZVJlYWR5ccllPAAAAAZQTFRFt7e3AAAAgOo4JQAAAA5JREFUeNpiYAABgAADAAAGAAHgQhFOAAAAAElFTkSuQmCC);
+}
+
+/* --- Import screen -------------- */
+
+
 .option-menu .advanced-options {
-	width: 210px;
+	width: 250px;
 	background: rgba(255, 255, 255, 0.4);
 	border: 1px solid #999;
 	padding: 0 3px;
@@ -283,14 +463,17 @@ div.error-box > div {
 	text-align: center;
 }
 
-#dropped-file-list {
-	display: none;
-	padding-bottom: 3px;
+.dropped-file-list {
+	margin-bottom: 8px;
+	max-height: 300px;
+	overflow-y: auto;
 }
 
-#dropped-file-list p {
+.dropped-file-list p {
 	line-height: 1;
 	margin-bottom: 5px;
+	font-size: 15px;
+	font-weight: bold;
 }
 
 .popup-dialog {
@@ -302,7 +485,7 @@ div.error-box > div {
 .info-box {
 	word-wrap: break-word;
 	text-align: left;
-	margin-top: 15px;
+	margin-top: 12px;
 	background-color: #fff;
 	padding: 11px 15px 9px 15px;
 	vertical-align: top;
@@ -314,7 +497,7 @@ div.error-box > div {
 .info-box h3 {
 	font-size: 1.2em;
 	padding: 0;
-	margin: 0 0 2px 0;
+	margin: 0 0 0.2em 0;
 }
 
 .info-box h4 {
@@ -324,7 +507,7 @@ div.error-box > div {
 
 .info-box p {
 	white-space: pre-line;
-	margin: 0 0 0.5em 0;
+	margin: 0 0 7px 0;
 }
 
 .option-menu {
@@ -351,7 +534,7 @@ div.error-box > div {
 
 /* --- Progress bar --------------- */
 
-#progress-message {
+.progress-message {
 	position: absolute;
 	width: 100%;
 	z-index: 90;
@@ -359,7 +542,7 @@ div.error-box > div {
 	top: 52px;
 }
 
-#progress-message > div {
+.progress-message > div {
 	display: inline-block;
 	text-transform: uppercase;
 	padding: 3px 6px;
@@ -380,46 +563,83 @@ div.error-box > div {
 
 /* --- Console control ------------ */
 
-#console {
+.console-area {
+	right: auto;
+	width: 495px;
+	max-width: 100%;
+	font-size: 12px;
+}
+
+body.console-open .map-area {
+	left: 495px;
+}
+
+/* responsive sizing, should be 78-80 chars per line */
+@media screen and (max-width: 525px) {
+	body.console-open .map-area {
+		display: none;
+	}
+}
+
+@media screen and (min-width: 1200px) {
+	body.console-open .map-area {
+		left: 535px;
+	}
+
+	.console-area {
+		width: 535px;
+		font-size: 13px;
+	}
+}
+
+@media screen and (min-width: 1400px) {
+	body.console-open .map-area {
+		left: 575px;
+	}
+
+	.console-area {
+		width: 575px;
+		font-size: 14px;
+	}
+}
+
+
+.console {
 	z-index: 30;
 	pointer-events: none;
 	display: none;
 }
 
-#console-window {
+.console-window {
 	pointer-events: auto;
-	background-color: rgba(0,0,0,1);
+	background-color: black;
 	position: absolute;
-	width: 100%;
 	text-align: center;
 	overflow: auto;
-	max-height: 80%;
+	width: 100%;
+	height: 100%;
 }
 
-#console-buffer {
+.console-buffer {
 	cursor: text;
 	width: 100%;
 	position: relative;
 	color: white;
-	font: 13px/1.35 monospace;
-	margin: 8px 0 10px 0;
+	font-family: Iosevka, monospace;
+	line-height: 1.35;
+	margin: 8px 0 20px 0;
 	word-break: break-all;
 	word-wrap: break-word;
-	white-space: pre; /* Chrome breaks right at line end */
+	white-space: pre-wrap;
+	 /* Removing this workaround: non-standard behavior fixed in recent Chrome
+	white-space: pre; */
 }
 
-@-moz-document url-prefix() {
-	#console-buffer {
-		white-space: pre-wrap; /* Firefox breaks right at line end */
-	}
-}
-
-#console-buffer > div {
+.console-buffer > div {
 	text-align: left;
-	max-width: 640px;
+	/* max-width: 640px; */
 	margin: 0 auto;
-	padding-left: 13%;
-	padding-right: 2%;
+	padding: 0 10px 0 14px;
 }
 
 .console-error {
@@ -441,7 +661,7 @@ div.error-box > div {
 
 /* --- Layer menu ----------- */
 
-#layer-control-btn {
+.layer-control-btn {
 	top: 0;
 	position: absolute;
 	text-align: center;
@@ -449,17 +669,17 @@ div.error-box > div {
 	width: 100%;
 }
 
-body.simplify #layer-control-btn {
+body.simplify .layer-control-btn {
 	display: none;
 }
 
-#layer-control .info-box {
+.layer-control .info-box {
 	padding: 0;
 	pointer-events: none;
 	background-color: transparent;
 }
 
-#layer-control div.info-box-scrolled {
+.layer-control div.info-box-scrolled {
 	position: relative;
 	z-index: -1;
 	background-color: white;
@@ -471,32 +691,84 @@ body.simplify #layer-control-btn {
 	border-radius: 9px;
 }
 
+.layer-control .info-box {
+	/* (Chrome fix) raise layer menu above container to catch events */ 
+	position: relative;
+	z-index: 90;
+}
 
-#layer-menu .layer-list {
+.layer-menu .layer-list {
 	margin: 6px 0 6px 0;
 }
 
-#layer-menu .layer-item {
+.layer-menu .layer-item {
 	position: relative;
 	margin-left: -14px;
-	margin-right: 9px;
+	margin-right: 6px;
 	padding: 8px 14px;
 	cursor: pointer;
 	width: 100%;
 }
 
+.pin-all img,
 .layer-item img {
 	position: absolute;
-	top: 8px;
-	opacity: 0.35;
-	right: 8px;
 	width: 16px;
 	height: 16px;
 	padding: 2px;
+	right: 6px;
 }
 
-.layer-item img:hover {
-	opacity: 1;
+img.close-btn {
+	opacity: 0.2;
+}
+
+.pin-all img {
+	top: 11px;
+	cursor: pointer;
+}
+
+
+.layer-item img.pin-btn {
+	top: 7px;
+}
+
+.layer-item img.close-btn {
+	top: 29px;
+	/* bottom: 8px; */
+}
+
+/* hide close button when not hovering */
+.layer-item:not(:hover) img.close-btn,
+.layer-item.dragging img.close-btn {
+	display: none;
+}
+
+img.pin-btn {
+	opacity: 0;
+}
+
+.pinnable:not(.pinned) img.unpinned {
+	opacity: 0.2;
+}
+
+.pinnable:not(.pinned) img.unpinned:hover {
+	opacity: 0.3;
+}
+
+.pinnable.pinned.active img.pinned {
+	/* display: none; */
+	opacity: 0;
+}
+
+img.close-btn:hover,
+.pinnable.pinned.active img.unpinned,
+.pinnable.pinned:not(.active) img.pinned {
+	opacity: 1
+}
+
+.pinnable img.unpinned {
+	z-index: 1;
 }
 
 .layer-item .row {
@@ -510,6 +782,10 @@ body.simplify #layer-control-btn {
 	min-height: 14px; /* For FF when content is empty */
 	min-width: 2px;
 	outline: none;
+}
+
+.layer-item .row.layer-problems {
+	color: #f93b00;
 }
 
 .layer-item .layer-name.editing {
@@ -528,7 +804,7 @@ body.simplify #layer-control-btn {
 	text-decoration: none;
 }
 
-.layer-item:hover:not(.active) {
+.layer-item:hover:not(.active):not(.dragging) {
 	background-color: #f7f7f7;
 }
 
@@ -540,31 +816,72 @@ body.simplify #layer-control-btn {
 	width: 84px;
 }
 
-.layer-item .col2 {
-	/*position: relative;
-	left: 12px;
-	*/
+.layer-item .row1 .col2 {
+	margin-right: 19px; /* room for buttons */
+}
+
+
+.layer-item.drag-target:not(.active) {
+	background-color: #f7f7f7;
+}
+
+.layer-item.drag-target * {
+	/* opacity: 0.3; */
+}
+
+.layer-item.drag-target.active {
+	/* background-color: #BDE2F4; */
+}
+
+.layer-item.insert-above:not(.drag-target) {
+	border-top: 1px solid black;
+}
+
+.layer-item.insert-below:not(.drag-target) {
+	border-bottom: 1px solid black;
 }
 
 /* --- Intersection control ----------*/
 
-#intersection-display {
+.intersection-display {
 	cursor: default;
 	visibility: visible;
 	display: none;
 	position: absolute;
 	z-index: 20;
-	top: 9px;
-	left: 12px;
+	top: 10px;
+	left: 13px;
 }
 
-#intersection-display .text-btn.disabled {
+.intersection-count {
+	vertical-align: middle;
+}
+
+.intersection-count .icon {
+	background-color: #F24400;
+	display: inline-block;
+	width: 5px;
+	height: 5px;
+	margin: 0 5px 2px 0;
+}
+
+.intersection-count .close-btn {
+	width: 16px;
+	height: 16px;
+	cursor: pointer;
+	position: relative;
+	top: 4px;
+	margin-left: 2px;
+}
+
+.intersection-display .text-btn.disabled {
 	visibility: hidden;
 }
 
 /* --- Popup -------------------- */
 
 .popup {
+	font-size: 13px;
 	box-sizing: border-box;
 	position: absolute;
 	z-index: 40;
@@ -576,26 +893,46 @@ body.simplify #layer-control-btn {
 	padding: 5px 0;
 }
 
-.popup > div {
+.popup div.popup-tab {
+	position: absolute;
+	pointer-events: none;
+	right: -81px;
+	width: 80px;
+	top: 6px;
+}
+
+.popup-tab .popup-nav {
+	display: inline-block;
+	pointer-events: auto;
+	background-color: rgba(234,234,234,0.85);
+	padding: 3px 5px 3px 4px;
+	white-space: nowrap;
+}
+
+.popup-nav .popup-nav-arrow {
+	cursor: pointer;
+	padding: 0 1px;
+}
+
+.popup > div.popup-content {
 	box-sizing: border-box;
 	overflow: hidden;
 	overflow-y: auto;
 	padding: 4px 12px;
 	line-height: 1.2;
-	font-size: 13px;
 }
 
 .popup table {
 	border-spacing: 0px;
 }
 
-.popup td {
+.popup table td {
 	vertical-align: top;
-	padding: 2px 0;
-	/*font-weight: bold;*/
+	/* padding: 2px 0; */
 	min-width: 80px;
 	max-width: 180px;
 	color: black;
+	height: 17px; /* functions like min-height on <td> */
 }
 
 .popup td.field-name {
@@ -603,16 +940,22 @@ body.simplify #layer-control-btn {
 	padding-right: 7px;
 	font-weight: normal;
 	min-width: 60px;
+	max-width: 260px;
+}
+
+.popup .value {
+	outline: none;
+	word-wrap: break-word;
 }
 
 .popup .num-field {
 	font-style: italic;
 }
 
-.popup .empty {
+.popup .empty, .popup .null-value {
 	min-width: 4px;
-	min-height: 10px;
 	display: inline-block;
+	min-height: 13px;
 }
 
 .popup .null-value {
@@ -621,12 +964,7 @@ body.simplify #layer-control-btn {
 
 .popup .note {
 	font-style: italic;
-	text-align: right;
-}
-
-.popup .value {
-	outline: none;
-	word-wrap: break-word;
+	min-height: 16px;
 }
 
 .popup .editable-cell .value.editing {
@@ -647,32 +985,52 @@ body.simplify #layer-control-btn {
 
 /* --- Map ---------------------- */
 
-#map-layers {
+.map-layers {
+	z-index: 0;
+	position: relative;
 	height: 100%;
 }
 
-#mshp-main-map {
+.mshp-main-map {
 	background-color: #fff;
 }
 
-#map-layers.hover {
+.map-layers.symbol-hit {
 	cursor: pointer;
 }
 
-#map-layers canvas {
+.map-layers canvas {
 	pointer-events: none;
 	position: absolute;
 }
 
-#map-layers canvas.retina {
+.map-layers canvas.retina {
 	transform-origin: top left;
 	-webkit-transform-origin: top left;
 	transform: scale3D(0.5, 0.5, 1);
 	-webkit-transform: scale3D(0.5, 0.5, 1);
 }
 
-#nav-buttons {
-	display: none;
+.map-layers > svg {
+	position: absolute;
+}
+
+.map-layers > svg text.selected {
+	stroke: #FFC3FF;
+	stroke-width: 4;
+	paint-order: stroke;
+	stroke-linecap: round;
+	stroke-linejoin: round;
+}
+
+.map-layers > svg.dragging,
+.map-layers > svg text.selected {
+	cursor: pointer;
+}
+
+/* ---  MAP BUTTONS --- */
+
+.nav-buttons {
 	z-index: 20;
 	position: absolute;
 	top: 6px;
@@ -681,18 +1039,78 @@ body.simplify #layer-control-btn {
 	background-color: rgba(255, 255, 255, 0.85);
 }
 
+.nav-btn-wrapper {
+	position: relative;
+}
+
+.nav-sub-btn {
+	position: absolute;
+	display: none;
+	cursor: pointer;
+	top: 4px;
+	padding: 4px;
+	right: 20px;
+	z-index: -2;
+}
+
+.nav-sub-btn svg * {
+	fill: black !important;
+}
+
+.nav-sub-menu {
+	position: absolute;
+	/* top: 5px;
+	right: 21px; */
+	z-index: -1;
+	display: none;
+	pointer-events: none;
+	padding-top: 4px;
+	top: 28px;
+	right: -6px;
+}
+
+.nav-btn.open .nav-sub-menu {
+	display: block;
+	pointer-events: inherit;
+}
+
+.nav-menu-item {
+	background-color: white;
+	color: #0774a5; /* .colored-text color */
+	float: right;
+	clear: right;
+	white-space: nowrap;
+	display: inline-block;
+	padding: 2px 6px;
+	line-height: 13px;
+	cursor: pointer;
+}
+
+
+.nav-menu-item.selected,
+.nav-menu-item:hover:not(.nav-menu-title) {
+	color: black;
+	font-weight: bold;
+}
+
+/* bullets https://www.w3schools.com/charsets/ref_utf_geometric.asp */
+.nav-sub-menu.active .nav-menu-item.selected:before {
+	content: "\25B8  "
+}
+
 .nav-btn {
+	position: relative;
 	cursor:pointer;
 	padding: 3px;
+	margin-bottom: 1px;
 	line-height: 1;
 }
 
-
-.nav-btn:hover * {
+.nav-btn.hover:not(.disabled) svg * {
 	fill: black;
 }
 
-.nav-btn.selected * {
+.nav-btn.selected:not(.disabled) svg * {
 	fill: white;
 }
 
@@ -701,17 +1119,27 @@ body.simplify #layer-control-btn {
 	border-radius: 4px;
 }
 
+.nav-btn.disabled {
+	opacity: 0.4;
+	cursor: default;
+}
+
 .zoom-box {
 	position: absolute;
 	border: 1px solid #f74b80;
 	z-index: 15;
+	pointer-events: none;
+}
+
+.zoom-box.zooming {
+	border-color: #0774a5;
 }
 
 
 /* Simplification control ------------ */
 
 @media (max-width: 765px) {
-	body.simplify  #simplify-control-wrapper {
+	body.simplify  .simplify-control-wrapper {
 		top: 22px;
 	}
 
@@ -724,7 +1152,7 @@ body.simplify #layer-control-btn {
 	}
 }
 
-#simplify-control-wrapper {
+.simplify-control-wrapper {
 	display: none;
 	position: absolute;
 	width: 100%;
@@ -733,39 +1161,39 @@ body.simplify #layer-control-btn {
 	top: 0px;
 }
 
-#simplify-control {
+.simplify-control {
 	text-align: center;
 	white-space: nowrap;
 	padding: 0 90px 0 12px;
 }
 
-#simplify-control .slider {
+.simplify-control .slider {
 	margin: 15px 5px 0 3px;
 	position: relative;
 	vertical-align: top;
 	display: inline-block;
 }
 
-#simplify-control .track {   	
-  	border-radius: 2px;
+.simplify-control .track {
+	border-radius: 2px;
 	width: 340px;
 	background-color: #fff;
 	height: 2px;
 }
 
-#simplify-control .handle {
+.simplify-control .handle {
 	position: absolute;
 	top: -3px;
 }
 
-#simplify-control .handle img {
+.simplify-control .handle img {
 	width: 20px;
 	height: 20px;
 	margin-left: -10px;
 	margin-top: -10px;
 }
 
-#simplify-control .clicktext {
+.simplify-control .clicktext {
 	width: 56px;
 	background: rgba(255, 255, 255, 0.5);
 	text-align: center;
@@ -773,6 +1201,6 @@ body.simplify #layer-control-btn {
 	font-size: 13px;
 }
 
-#simplify-control .clicktext:focus {
+.simplify-control .clicktext:focus {
 	background: #fff;
 }

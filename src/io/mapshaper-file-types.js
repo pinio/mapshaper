@@ -1,76 +1,55 @@
-/* @require mapshaper-filename-utils */
+
+import utils from '../utils/mapshaper-utils';
+import { getFileExtension } from '../utils/mapshaper-filename-utils';
 
 // Guess the type of a data file from file extension, or return null if not sure
-MapShaper.guessInputFileType = function(file) {
-  var ext = utils.getFileExtension(file || '').toLowerCase(),
+export function guessInputFileType(file) {
+  var ext = getFileExtension(file || '').toLowerCase(),
       type = null;
-  if (ext == 'dbf' || ext == 'shp' || ext == 'prj') {
+  if (ext == 'dbf' || ext == 'shp' || ext == 'prj' || ext == 'shx') {
     type = ext;
   } else if (/json$/.test(ext)) {
     type = 'json';
+  } else if (ext == 'csv' || ext == 'tsv' || ext == 'txt' || ext == 'tab') {
+    type = 'text';
   }
   return type;
-};
+}
 
-MapShaper.guessInputContentType = function(content) {
+export function guessInputContentType(content) {
   var type = null;
   if (utils.isString(content)) {
-    type = MapShaper.stringLooksLikeJSON(content) ? 'json' : 'text';
+    type = stringLooksLikeJSON(content) ? 'json' : 'text';
   } else if (utils.isObject(content) && content.type || utils.isArray(content)) {
     type = 'json';
   }
   return type;
-};
+}
 
-MapShaper.guessInputType = function(file, content) {
-  return MapShaper.guessInputFileType(file) || MapShaper.guessInputContentType(content);
-};
+export function guessInputType(file, content) {
+  return guessInputFileType(file) || guessInputContentType(content);
+}
 
 //
-MapShaper.stringLooksLikeJSON = function(str) {
+export function stringLooksLikeJSON(str) {
   return /^\s*[{[]/.test(String(str));
-};
+}
 
-MapShaper.couldBeDsvFile = function(name) {
-  var ext = utils.getFileExtension(name).toLowerCase();
+export function couldBeDsvFile(name) {
+  var ext = getFileExtension(name).toLowerCase();
   return /csv|tsv|txt$/.test(ext);
-};
+}
 
-// Infer output format by considering file name and (optional) input format
-MapShaper.inferOutputFormat = function(file, inputFormat) {
-  var ext = utils.getFileExtension(file).toLowerCase(),
-      format = null;
-  if (ext == 'shp') {
-    format = 'shapefile';
-  } else if (ext == 'dbf') {
-    format = 'dbf';
-  } else if (ext == 'svg') {
-    format = 'svg';
-  } else if (/json$/.test(ext)) {
-    format = 'geojson';
-    if (ext == 'topojson' || inputFormat == 'topojson' && ext != 'geojson') {
-      format = 'topojson';
-    } else if (ext == 'json' && inputFormat == 'json') {
-      format = 'json'; // JSON table
-    }
-  } else if (MapShaper.couldBeDsvFile(file)) {
-    format = 'dsv';
-  } else if (inputFormat) {
-    format = inputFormat;
-  }
-  return format;
-};
-
-MapShaper.isZipFile = function(file) {
+export function isZipFile(file) {
   return /\.zip$/i.test(file);
-};
+}
 
-MapShaper.isSupportedOutputFormat = function(fmt) {
+export function isSupportedOutputFormat(fmt) {
   var types = ['geojson', 'topojson', 'json', 'dsv', 'dbf', 'shapefile', 'svg'];
   return types.indexOf(fmt) > -1;
-};
+}
 
-MapShaper.getFormatName = function(fmt) {
+export function getFormatName(fmt) {
   return {
     geojson: 'GeoJSON',
     topojson: 'TopoJSON',
@@ -80,16 +59,16 @@ MapShaper.getFormatName = function(fmt) {
     shapefile: 'Shapefile',
     svg: 'SVG'
   }[fmt] || '';
-};
+}
 
 // Assumes file at @path is one of Mapshaper's supported file types
-MapShaper.isBinaryFile = function(path) {
-  var ext = utils.getFileExtension(path).toLowerCase();
-  return ext == 'shp' || ext == 'dbf' || ext == 'zip'; // GUI accepts zip files
-};
+export function isSupportedBinaryInputType(path) {
+  var ext = getFileExtension(path).toLowerCase();
+  return ext == 'shp' || ext == 'shx' || ext == 'dbf'; // GUI also supports zip files
+}
 
 // Detect extensions of some unsupported file types, for cmd line validation
-MapShaper.filenameIsUnsupportedOutputType = function(file) {
+export function filenameIsUnsupportedOutputType(file) {
   var rxp = /\.(shx|prj|xls|xlsx|gdb|sbn|sbx|xml|kml)$/i;
   return rxp.test(file);
-};
+}

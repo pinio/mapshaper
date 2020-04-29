@@ -1,10 +1,13 @@
-/* @requires
-mapshaper-common
-mapshaper-geojson
-mapshaper-topojson
-mapshaper-shapefile
-mapshaper-json-table
-*/
+import { importDbfTable } from '../shapefile/dbf-import';
+import { importShp } from '../shapefile/shp-import';
+import { guessInputType } from '../io/mapshaper-file-types';
+import { importDelim2 } from '../text/mapshaper-delim-import';
+import { cleanPathsAfterImport } from '../paths/mapshaper-path-import';
+import utils from '../utils/mapshaper-utils';
+import { importJSON } from '../io/mapshaper-json-import';
+import { buildTopology } from '../topology/mapshaper-topology';
+import { message, stop } from '../utils/mapshaper-logging';
+import { getFileBase, parseLocalPath } from '../utils/mapshaper-filename-utils';
 
 // Parse content of one or more input files and return a dataset
 // @obj: file data, indexed by file type
@@ -12,41 +15,36 @@ mapshaper-json-table
 //    content: Buffer, ArrayBuffer, String or Object
 //    filename: String or null
 //
-MapShaper.importContent = function(obj, opts) {
+export function importContent(obj, opts) {
   var dataset, content, fileFmt, data;
   opts = opts || {};
   if (obj.json) {
-    data = obj.json;
-    content = data.content;
-    if (utils.isString(content)) {
-      try {
-        content = JSON.parse(content);
-      } catch(e) {
-        stop("Unable to parse JSON");
-      }
-    }
-    if (content.type == 'Topology') {
-      fileFmt = 'topojson';
-      dataset = MapShaper.importTopoJSON(content, opts);
-    } else if (content.type) {
-      fileFmt = 'geojson';
-      dataset = MapShaper.importGeoJSON(content, opts);
-    } else if (utils.isArray(content)) {
-      fileFmt = 'json';
-      dataset = MapShaper.importJSONTable(content, opts);
-    }
+    data = importJSON(obj.json, opts);
+    fileFmt = data.format;
+    dataset = data.dataset;
+    cleanPathsAfterImport(dataset, opts);
+
   } else if (obj.text) {
     fileFmt = 'dsv';
     data = obj.text;
-    dataset = MapShaper.importDelim(data.content, opts);
+    dataset = importDelim2(data, opts);
+
   } else if (obj.shp) {
     fileFmt = 'shapefile';
     data = obj.shp;
-    dataset = MapShaper.importShapefile(obj, opts);
+    dataset = importShapefile(obj, opts);
+    cleanPathsAfterImport(dataset, opts);
+
   } else if (obj.dbf) {
     fileFmt = 'dbf';
     data = obj.dbf;
-    dataset = MapShaper.importDbf(obj, opts);
+    dataset = importDbf(obj, opts);
+
+  } else if (obj.prj) {
+    // added for -proj command source
+    fileFmt = 'prj';
+    data = obj.prj;
+    dataset = {layers: [], info: {prj: data.content}};
   }
 
   if (!dataset) {
@@ -55,13 +53,13 @@ MapShaper.importContent = function(obj, opts) {
 
   // Convert to topological format, if needed
   if (dataset.arcs && !opts.no_topology && fileFmt != 'topojson') {
-    api.buildTopology(dataset);
+    buildTopology(dataset);
   }
 
   // Use file basename for layer name, except TopoJSON, which uses object names
   if (fileFmt != 'topojson') {
     dataset.layers.forEach(function(lyr) {
-      MapShaper.setLayerName(lyr, MapShaper.filenameToLayerName(data.filename || ''));
+      setLayerName(lyr, filenameToLayerName(data.filename || ''));
     });
   }
 
@@ -71,62 +69,63 @@ MapShaper.importContent = function(obj, opts) {
     dataset.info.input_files = [data.filename];
   }
   dataset.info.input_formats = [fileFmt];
-
   return dataset;
-};
+}
 
 // Deprecated (included for compatibility with older tests)
-MapShaper.importFileContent = function(content, filename, opts) {
-  var type = MapShaper.guessInputType(filename, content),
+export function importFileContent(content, filename, opts) {
+  var type = guessInputType(filename, content),
       input = {};
   input[type] = {filename: filename, content: content};
-  return MapShaper.importContent(input, opts);
-};
+  return importContent(input, opts);
+}
 
-MapShaper.importShapefile = function(obj, opts) {
-  var shpSrc = obj.shp.content || obj.shp.filename, // content may be missing
-      dataset = MapShaper.importShp(shpSrc, opts),
+
+function importShapefile(obj, opts) {
+  var shpSrc = obj.shp.content || obj.shp.filename, // read from a file if (binary) content is missing
+      shxSrc = obj.shx ? obj.shx.content || obj.shx.filename : null,
+      dataset = importShp(shpSrc, shxSrc, opts),
       lyr = dataset.layers[0],
       dbf;
   if (obj.dbf) {
-    dbf = MapShaper.importDbf(obj, opts);
+    dbf = importDbf(obj, opts);
     utils.extend(dataset.info, dbf.info);
     lyr.data = dbf.layers[0].data;
     if (lyr.shapes && lyr.data.size() != lyr.shapes.length) {
-      message("[shp] Mismatched .dbf and .shp record count -- possible data loss.");
+      message("Mismatched .dbf and .shp record count -- possible data loss.");
     }
   }
   if (obj.prj) {
-    dataset.info.input_prj = obj.prj.content;
+    dataset.info.prj = obj.prj.content;
   }
   return dataset;
-};
+}
 
-MapShaper.importDbf = function(input, opts) {
+function importDbf(input, opts) {
   var table;
   opts = utils.extend({}, opts);
   if (input.cpg && !opts.encoding) {
     opts.encoding = input.cpg.content;
   }
-  table = MapShaper.importDbfTable(input.dbf.content, opts);
+  table = importDbfTable(input.dbf.content, opts);
   return {
     info: {},
     layers: [{data: table}]
   };
-};
+}
 
-MapShaper.filenameToLayerName = function(path) {
+function filenameToLayerName(path) {
   var name = 'layer1';
-  var obj = utils.parseLocalPath(path);
+  var obj = parseLocalPath(path);
   if (obj.basename && obj.extension) { // exclude paths like '/dev/stdin'
     name = obj.basename;
   }
   return name;
-};
+}
 
 // initialize layer name using filename
-MapShaper.setLayerName = function(lyr, path) {
+function setLayerName(lyr, path) {
   if (!lyr.name) {
-    lyr.name = utils.getFileBase(path);
+    lyr.name = getFileBase(path);
   }
-};
+}

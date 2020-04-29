@@ -1,4 +1,9 @@
-/* @requires shp-record, mapshaper-cli-utils */
+
+import ShpRecordClass from '../shapefile/shp-record';
+import { error, verbose, message, stop } from '../utils/mapshaper-logging';
+import utils from '../utils/mapshaper-utils';
+import { FileReader, BufferReader } from '../io/mapshaper-file-reader';
+import { isSupportedShapefileType } from '../shapefile/shp-common';
 
 // Read data from a .shp file
 // @src is an ArrayBuffer, Node.js Buffer or filename
@@ -20,16 +25,22 @@
 //      var data = s.read();
 //    });
 //
-function ShpReader(src) {
+export function ShpReader(shpSrc, shxSrc) {
   if (this instanceof ShpReader === false) {
-    return new ShpReader(src);
+    return new ShpReader(shpSrc, shxSrc);
   }
 
-  var file = utils.isString(src) ? new FileBytes(src) : new BufferBytes(src);
-  var header = parseHeader(file.readBytes(100, 0));
-  var fileSize = file.size();
+  var shpFile = utils.isString(shpSrc) ? new FileReader(shpSrc) : new BufferReader(shpSrc);
+  var header = parseHeader(shpFile.readToBinArray(0, 100));
+  var shpSize = shpFile.size();
   var RecordClass = new ShpRecordClass(header.type);
-  var recordOffs, i, skippedBytes;
+  var shpOffset, recordCount, skippedBytes;
+  var shxBin, shxFile;
+
+  if (shxSrc) {
+    shxFile = utils.isString(shxSrc) ? new FileReader(shxSrc) : new BufferReader(shxSrc);
+    shxBin = shxFile.readToBinArray(0, shxFile.size()).bigEndian();
+  }
 
   reset();
 
@@ -50,36 +61,62 @@ function ShpReader(src) {
 
   // Iterator interface for reading shape records
   this.nextShape = function() {
-    var shape = readShapeAtOffset(recordOffs, i),
-        offs2, skipped;
-    if (!shape && recordOffs + 12 <= fileSize) {
-      // Very rarely, in-the-wild .shp files may contain junk bytes between
-      // records; it may be possible to scan past the junk to find the next record.
-      shape = huntForNextShape(recordOffs + 4, i);
-    }
-    if (shape) {
-      recordOffs += shape.byteLength;
-      if (shape.id < i) {
-        // Encountered in ne_10m_railroads.shp from natural earth v2.0.0
-        message("[shp] Record " + shape.id + " appears more than once -- possible file corruption.");
-        return this.nextShape();
-      }
-      i++;
-    } else {
+    var shape = readNextShape();
+    if (!shape) {
       if (skippedBytes > 0) {
-        // Encountered in ne_10m_railroads.shp from natural earth v2.0.0
-        message("[shp] Skipped " + skippedBytes + " bytes in .shp file -- possible data loss.");
+        // Encountered in files from natural earth v2.0.0:
+        // ne_10m_admin_0_boundary_lines_land.shp
+        // ne_110m_admin_0_scale_rank.shp
+        verbose("Skipped over " + skippedBytes + " non-data bytes in the .shp file.");
       }
-      file.close();
+      shpFile.close();
       reset();
     }
     return shape;
   };
 
+  function readNextShape() {
+    var expectedId = recordCount + 1; // Shapefile ids are 1-based
+    var shape, offset;
+    if (done()) return null;
+    if (shxBin) {
+      shxBin.position(100 + recordCount * 8);
+      offset = shxBin.readUint32() * 2;
+      if (offset > shpOffset) {
+        skippedBytes += offset - shpOffset;
+      }
+    } else {
+      offset = shpOffset;
+    }
+    shape = readShapeAtOffset(offset);
+    if (!shape) {
+      // Some in-the-wild .shp files contain junk bytes between records. This
+      // is a problem if the .shx index file is not present.
+      // Here, we try to scan past the junk to find the next record.
+      shape = huntForNextShape(offset, expectedId);
+    }
+    if (shape) {
+      if (shape.id < expectedId) {
+        message("Found a Shapefile record with the same id as a previous record (" + shape.id + ") -- skipping.");
+        return readNextShape();
+      } else if (shape.id > expectedId) {
+        stop("Shapefile contains an out-of-sequence record. Possible data corruption -- bailing.");
+      }
+      recordCount++;
+    }
+    return shape || null;
+  }
+
+  function done() {
+    if (shxFile && shxFile.size() <= 100 + recordCount * 8) return true;
+    if (shpOffset + 12 > shpSize) return true;
+    return false;
+  }
+
   function reset() {
-    recordOffs = 100;
+    shpOffset = 100;
     skippedBytes = 0;
-    i = 1; // Shapefile id of first record
+    recordCount = 0;
   }
 
   function parseHeader(bin) {
@@ -97,33 +134,33 @@ function ShpReader(src) {
       error("Not a valid .shp file");
     }
 
-    if (!MapShaper.isSupportedShapefileType(header.type)) {
+    if (!isSupportedShapefileType(header.type)) {
       error("Unsupported .shp type:", header.type);
     }
 
-    if (header.byteLength != file.size()) {
+    if (header.byteLength != shpFile.size()) {
       error("File size of .shp doesn't match size in header");
     }
 
     return header;
   }
 
-  function readShapeAtOffset(recordOffs, i) {
+  function readShapeAtOffset(offset) {
     var shape = null,
-        recordSize, recordType, recordId, goodId, goodSize, goodType, bin;
+        recordSize, recordType, recordId, goodSize, goodType, bin;
 
-    if (recordOffs + 12 <= fileSize) {
-      bin = file.readBytes(12, recordOffs);
+    if (offset + 12 <= shpSize) {
+      bin = shpFile.readToBinArray(offset, 12);
       recordId = bin.bigEndian().readUint32();
       // record size is bytes in content section + 8 header bytes
       recordSize = bin.readUint32() * 2 + 8;
       recordType = bin.littleEndian().readUint32();
-      goodId = recordId == i; // not checking id ...
-      goodSize = recordOffs + recordSize <= fileSize && recordSize >= 12;
+      goodSize = offset + recordSize <= shpSize && recordSize >= 12;
       goodType = recordType === 0 || recordType == header.type;
       if (goodSize && goodType) {
-        bin = file.readBytes(recordSize, recordOffs);
+        bin = shpFile.readToBinArray(offset, recordSize);
         shape = new RecordClass(bin, recordSize);
+        shpOffset = offset + shape.byteLength; // advance read position
       }
     }
     return shape;
@@ -132,21 +169,23 @@ function ShpReader(src) {
   // TODO: add tests
   // Try to scan past unreadable content to find next record
   function huntForNextShape(start, id) {
-    var offset = start,
+    var offset = start + 4,
         shape = null,
-        bin, recordId, recordType;
-    while (offset + 12 <= fileSize) {
-      bin = file.readBytes(12, offset);
+        bin, recordId, recordType, count;
+    while (offset + 12 <= shpSize) {
+      bin = shpFile.readToBinArray(offset, 12);
       recordId = bin.bigEndian().readUint32();
       recordType = bin.littleEndian().skipBytes(4).readUint32();
       if (recordId == id && (recordType == header.type || recordType === 0)) {
         // we have a likely position, but may still be unparsable
-        shape = readShapeAtOffset(offset, id);
+        shape = readShapeAtOffset(offset);
         break;
       }
       offset += 4; // try next integer position
     }
-    skippedBytes += shape ? offset - start : fileSize - start;
+    count = shape ? offset - start : shpSize - start;
+    // debug('Skipped', count, 'bytes', shape ? 'before record ' + id : 'at the end of the file');
+    skippedBytes += count;
     return shape;
   }
 }
@@ -170,63 +209,3 @@ ShpReader.prototype.getCounts = function() {
   });
   return counts;
 };
-
-// Same interface as FileBytes, for reading from a buffer instead of a file.
-function BufferBytes(buf) {
-  var bin = new BinArray(buf),
-      bufSize = bin.size();
-  this.readBytes = function(len, offset) {
-    if (bufSize < offset + len) error("Out-of-range error");
-    bin.position(offset);
-    return bin;
-  };
-
-  this.size = function() {
-    return bufSize;
-  };
-
-  this.close = function() {};
-}
-
-// Read a binary file in chunks, to support files > 1GB in Node
-function FileBytes(path) {
-  var DEFAULT_BUF_SIZE = 0xffffff, // 16 MB
-      fs = require('fs'),
-      fileSize = cli.fileSize(path),
-      cacheOffs = 0,
-      cache, fd;
-
-  this.readBytes = function(len, start) {
-    if (fileSize < start + len) error("Out-of-range error");
-    if (!cache || start < cacheOffs || start + len > cacheOffs + cache.size()) {
-      updateCache(len, start);
-    }
-    cache.position(start - cacheOffs);
-    return cache;
-  };
-
-  this.size = function() {
-    return fileSize;
-  };
-
-  this.close = function() {
-    if (fd) {
-      fs.closeSync(fd);
-      fd = null;
-      cache = null;
-      cacheOffs = 0;
-    }
-  };
-
-  function updateCache(len, start) {
-    var headroom = fileSize - start,
-        bufSize = Math.min(headroom, Math.max(DEFAULT_BUF_SIZE, len)),
-        buf = new Buffer(bufSize),
-        bytesRead;
-    if (!fd) fd = fs.openSync(path, 'r');
-    bytesRead = fs.readSync(fd, buf, 0, bufSize, start);
-    if (bytesRead < bufSize) error("Error reading file");
-    cacheOffs = start;
-    cache = new BinArray(buf);
-  }
-}

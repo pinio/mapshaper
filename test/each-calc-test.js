@@ -33,6 +33,15 @@ describe('mapshaper-each-calc.js', function () {
       assert.deepEqual(records, [{}, {}]);
     })
 
+    it('use arrow function', function () {
+      var records = [{foo:[1,2,3]}];
+      var lyr = {
+        data: new api.internal.DataTable(records)
+      };
+      api.evaluateEachFeature(lyr, nullArcs, "foo = foo.map(n => n+1).join('')");
+      assert.deepEqual(records, [{foo: '234'}]);
+    })
+
     it('update a field', function () {
       var records = [{foo:'mice'}, {foo:'beans'}];
       var lyr = {
@@ -40,6 +49,24 @@ describe('mapshaper-each-calc.js', function () {
       };
       api.evaluateEachFeature(lyr, nullArcs, "foo=foo.substr(0, 2)");
       assert.deepEqual(records, [{foo:'mi'}, {foo:'be'}]);
+    })
+
+    it('this.properties exposes feature data', function() {
+      var records = [{'label-text':'Finland'}, {'label-text':'Sweden'}];
+      var lyr = {
+        data: new api.internal.DataTable(records)
+      };
+      api.evaluateEachFeature(lyr, nullArcs, "this.properties['label-text'] = this.properties['label-text'].toUpperCase()");
+      assert.deepEqual(records, [{'label-text':'FINLAND'}, {'label-text':'SWEDEN'}]);
+    })
+
+    it('"d" is equivalent to "this.properties"', function() {
+      var records = [{'label-text':'Finland'}, {'label-text':'Sweden'}];
+      var lyr = {
+        data: new api.internal.DataTable(records)
+      };
+      api.evaluateEachFeature(lyr, nullArcs, "d['label-text'] = d['label-text'].toUpperCase()");
+      assert.deepEqual(records, [{'label-text':'FINLAND'}, {'label-text':'SWEDEN'}]);
     })
 
     it('test $.partCount', function () {
@@ -161,6 +188,16 @@ describe('mapshaper-each-calc.js', function () {
         assert.deepEqual(lyr.data.getRecords(), [{x: 0, y: 1}, {x: 2, y: 3}, {x: null, y: null}]);
       })
 
+      it ('x and y setters are implemented', function() {
+        var lyr = {
+          geometry_type: 'point',
+          shapes: [[[0, 1]], [[2, 3], [3, 4]], null]
+        };
+        // first point of multipoint is set; null shapes are ignored (for now)
+        api.evaluateEachFeature(lyr, null, "$.x = 0, $.y = 0");
+        assert.deepEqual(lyr.shapes, [[[0, 0]], [[0, 0], [3, 4]], null]);
+      })
+
       it ('point coords are exposed', function() {
         var lyr = {
           geometry_type: 'point',
@@ -168,6 +205,61 @@ describe('mapshaper-each-calc.js', function () {
         };
         api.evaluateEachFeature(lyr, null, "x=$.coordinates[0][0], y=$.coordinates[0][1]");
         assert.deepEqual(lyr.data.getRecords(), [{x: 0, y: 1}, {x: 2, y: 3}]);
+      })
+    });
+
+    describe('$.length for polygons', function() {
+      it ('polygon perimeter and polyline length are the same', function(done) {
+        // bit of a kludge to copy polygon perimeter to generated line features
+        var cmd = '-i test/data/two_states.json no-topology -each "perimeter = this.perimeter" ' +
+          '-lines each="perimeter = A.perimeter" -each "length = this.length" -o';
+        api.applyCommands(cmd, function(err, out) {
+          var features = JSON.parse(out['two_states.json']).features;
+          assert.equal(features[0].properties.perimeter, features[0].properties.length);
+          assert.equal(features[1].properties.perimeter, features[1].properties.length);
+          done();
+        });
+      });
+
+    });
+
+    describe('test $.innerPct', function() {
+      //
+      //  a -- b -- c
+      //  |    |    |
+      //  d -- e -- f
+      //
+      //  h -- i
+      //  |    |
+      //  g--- j
+      //
+      var geojson = {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'Polygon',
+          coordinates: [[[1,3], [1, 4], [2, 4], [2, 3], [1, 3]]]
+        }, {
+          type: 'Polygon',
+          coordinates: [[[2,3], [2, 4], [3, 4], [3, 3], [2, 3]]]
+        }, {
+          type: 'Polygon',
+          coordinates: [[[1,1], [1, 2], [2, 2], [2, 1], [1, 1]]]
+        }]
+      };
+
+      it('test 1', function(done) {
+        var cmd = '-i in.json -each "pct = this.innerPct" -o out.json format=json';
+        api.applyCommands(cmd, {'in.json': geojson}, function(err, out) {
+          var json = JSON.parse(out['out.json']);
+          assert.equal(json.length, 3);
+          assert.deepEqual(json[2], {pct: 0})
+          // value of first two features is not exactly 0.25,
+          // because coordinates are interpreted as lat-long, so
+          // great circle distance is used
+          assert.equal(Math.round(json[0].pct * 100), 25);
+          assert.equal(Math.round(json[1].pct * 100), 25);
+          done();
+        })
       })
     });
 

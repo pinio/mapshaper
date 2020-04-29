@@ -15,6 +15,21 @@ describe('dbf-writer.js', function () {
     assert.equal(Dbf.MAX_STRING_LEN, 254);
   })
 
+  describe('convertValueToString()', function () {
+    it('null and undefined become empty strings', function () {
+      assert.strictEqual(Dbf.convertValueToString(undefined), '');
+      assert.strictEqual(Dbf.convertValueToString(null), '');
+    })
+  })
+
+  describe('convertFieldNames()', function() {
+    it ('changes non-alphanumeric characters and truncates', function() {
+      var names = ['中国北京', 'brewery:kölsch'];
+      var names2 = Dbf.convertFieldNames(names);
+      assert.deepEqual(names2, ['_', 'brewery_k_'])
+    })
+  })
+
   describe('truncateEncodedString()', function () {
     it('truncates problem string to valid utf8', function () {
       // simple truncation creates a partial (invalid) final character
@@ -31,7 +46,19 @@ describe('dbf-writer.js', function () {
     })
   })
 
-  describe('Dbf#getFieldInfo()', function () {
+  describe('field-order=ascending option', function () {
+    it ('sorts columns in case-insensitive order', function(done) {
+      var a = 'A,Z,B,Y,c,X\na,z,b,y,c,x';
+      var cmd = '-i a.csv -o format=dbf field-order=ascending';
+      api.applyCommands(cmd, {'a.csv': a}, function(err, output) {
+        var dbf = new api.internal.DbfReader(output['a.dbf']);
+        assert.deepEqual(dbf.getFields(), 'A,B,c,X,Y,Z'.split(','));
+        done();
+      });
+    });
+  })
+
+  describe('Dbf.getFieldInfo()', function () {
     it('integers are identified as type "N"', function () {
       var data = [{a: 2147483648, b: -2147483649, c: 2147483647, d: -2147483648}],
           info;
@@ -55,7 +82,20 @@ describe('dbf-writer.js', function () {
       assert.equal(info.type, 'C');
       assert.equal(info.size, 254);
       assert.equal(info.decimals, 0);
-      assert.equal(info.name, 'a');
+      assert(!!info.warning);
+    })
+
+    it('objects are exported as empty values, with a warning', function() {
+      var data = [{a: {}, b: [1], c: function() {}}],
+          a = Dbf.getFieldInfo(data, 'a'),
+          b = Dbf.getFieldInfo(data, 'b'),
+          c = Dbf.getFieldInfo(data, 'c');
+      assert(!!a.warning);
+      assert(!!b.warning);
+      assert(!!c.warning);
+      assert.equal(a.size, 0);
+      assert.equal(b.size, 0);
+      assert.equal(c.size, 0);
     })
   })
 

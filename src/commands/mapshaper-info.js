@@ -1,86 +1,143 @@
-/* @requires
-mapshaper-common
-mapshaper-dataset-utils
-mapshaper-nodes
-mapshaper-projections
-*/
+import { applyFieldOrder } from '../datatable/mapshaper-data-utils';
+import { editShapes } from '../paths/mapshaper-shape-utils';
+import { getProjInfo } from '../geom/mapshaper-projections';
+import { getLayerBounds, getFeatureCount, getLayerSourceFile } from '../dataset/mapshaper-layer-utils';
+import utils from '../utils/mapshaper-utils';
+import geom from '../geom/mapshaper-geom';
+import { message } from '../utils/mapshaper-logging';
+import { NodeCollection } from '../topology/mapshaper-nodes';
+import cmd from '../mapshaper-cmd';
 
-MapShaper.printLayerInfo = function(lyr, dataset, i) {
-  var str = 'Layer ' + (i + 1) + '\n' + MapShaper.getLayerInfo(lyr, dataset) + '\n';
+var MAX_RULE_LEN = 50;
+
+cmd.printInfo = function(layers) {
+  var str = '';
+  layers.forEach(function(o, i) {
+    var title =  'Layer:    ' + (o.layer.name || '[unnamed layer]');
+    var tableStr = getAttributeTableInfo(o.layer);
+    var tableWidth = measureLongestLine(tableStr);
+    var ruleLen = Math.min(Math.max(title.length, tableWidth), MAX_RULE_LEN);
+    str += '\n';
+    str += utils.lpad('', ruleLen, '=') + '\n';
+    str += title + '\n';
+    str += utils.lpad('', ruleLen, '-') + '\n';
+    str += getLayerInfo(o.layer, o.dataset);
+    str += tableStr;
+  });
   message(str);
 };
 
+function measureLongestLine(str) {
+  return Math.max.apply(null, str.split('\n').map(function(line) {return line.length;}));
+}
+
+export function getLayerData(lyr, dataset) {
+  var n = getFeatureCount(lyr);
+  var o = {
+    geometry_type: lyr.geometry_type,
+    feature_count: n,
+    null_shape_count: 0,
+    null_data_count: lyr.data ? countNullRecords(lyr.data.getRecords()) : n
+  };
+  if (lyr.shapes) {
+    o.null_shape_count = countNullShapes(lyr.shapes);
+    o.bbox =getLayerBounds(lyr, dataset.arcs).toArray();
+    o.proj4 = getProjInfo(dataset);
+  }
+  return o;
+}
+
 // TODO: consider polygons with zero area or other invalid geometries
-MapShaper.countNullShapes = function(shapes) {
+function countNullShapes(shapes) {
   var count = 0;
   for (var i=0; i<shapes.length; i++) {
     if (!shapes[i] || shapes[i].length === 0) count++;
   }
   return count;
-};
+}
 
-MapShaper.getLayerInfo = function(lyr, dataset) {
-  var str = "Layer name: " + (lyr.name || "[unnamed]") + "\n";
-  str += utils.format("Records: %,d\n", MapShaper.getFeatureCount(lyr));
-  str += MapShaper.getGeometryInfo(lyr, dataset);
-  str += MapShaper.getTableInfo(lyr);
+function countNullRecords(records) {
+  var count = 0;
+  for (var i=0; i<records.length; i++) {
+    if (!records[i]) count++;
+  }
+  return count;
+}
+
+function countRings(shapes, arcs) {
+  var holes = 0, rings = 0;
+  editShapes(shapes, function(ids) {
+    var area = geom.getPlanarPathArea(ids, arcs);
+    if (area > 0) rings++;
+    if (area < 0) holes++;
+  });
+  return {rings: rings, holes: holes};
+}
+
+function getLayerInfo(lyr, dataset) {
+  var data = getLayerData(lyr, dataset);
+  var str = '';
+  str += "Type:     " + (data.geometry_type || "tabular data") + "\n";
+  str += utils.format("Records:  %,d\n",data.feature_count);
+  if (data.null_shape_count > 0) {
+    str += utils.format("Nulls:     %'d", data.null_shape_count) + "\n";
+  }
+  if (data.geometry_type && data.feature_count > data.null_shape_count) {
+    str += "Bounds:   " + data.bbox.join(',') + "\n";
+    str += "CRS:      " + data.proj4 + "\n";
+  }
+  str += "Source:   " + (getLayerSourceFile(lyr, dataset) || 'n/a') + "\n";
   return str;
-};
+}
 
-MapShaper.getGeometryInfo = function(lyr, dataset) {
-  var shapeCount = lyr.shapes ? lyr.shapes.length : 0,
-      nullCount = shapeCount > 0 ? MapShaper.countNullShapes(lyr.shapes) : 0,
-      lines;
-  if (!lyr.geometry_type) {
-    lines = ["Geometry: [none]"];
-  } else {
-    lines = ["Geometry", "Type: " + lyr.geometry_type];
-    if (nullCount > 0) {
-      lines.push(utils.format("Null shapes: %'d", nullCount));
-    }
-    if (shapeCount > nullCount) {
-      lines.push("Bounds: " + MapShaper.getLayerBounds(lyr, dataset.arcs).toArray().join(' '));
-      lines.push("Proj.4: " + MapShaper.getProjInfo(dataset));
-    }
+export function getAttributeTableInfo(lyr, i) {
+  if (!lyr.data || lyr.data.size() === 0 || lyr.data.getFields().length === 0) {
+    return "Attribute data: [none]\n";
   }
-  return lines.join('\n  ') + '\n';
-};
+  return "\nAttribute data\n" + formatAttributeTable(lyr.data, i);
+}
 
-MapShaper.getTableInfo = function(lyr, i) {
-  if (!lyr.data || lyr.data.size() === 0) {
-    return "Attribute data: [none]";
-  }
-  return MapShaper.getAttributeInfo(lyr.data, i);
-};
-
-MapShaper.getAttributeInfo = function(data, i) {
-  var featureId = i || 0;
-  var featureLabel = i >= 0 ? 'Value' : 'First value';
-  var fields = data.getFields().sort();
-  var col1Chars = fields.reduce(function(memo, name) {
-    return Math.max(memo, name.length);
-  }, 5) + 2;
+function formatAttributeTable(data, i) {
+  var fields = applyFieldOrder(data.getFields(), 'ascending');
   var vals = fields.map(function(fname) {
-    return data.getRecordAt(featureId)[fname];
+    return data.getReadOnlyRecordAt(i || 0)[fname];
   });
   var maxIntegralChars = vals.reduce(function(max, val) {
     if (utils.isNumber(val)) {
-      max = Math.max(max, MapShaper.countIntegralChars(val));
+      max = Math.max(max, countIntegralChars(val));
     }
     return max;
   }, 0);
-  var table = vals.map(function(val, i) {
-    return '  ' + MapShaper.formatTableItem(fields[i], val, col1Chars, maxIntegralChars);
-  }).join('\n');
-  return "Attribute data\n  " +
-      utils.rpad('Field', col1Chars, ' ') + featureLabel + "\n" + table;
-};
+  var col1Arr = ['Field'].concat(fields);
+  var col2Arr = vals.reduce(function(memo, val) {
+    memo.push(formatTableValue(val, maxIntegralChars));
+    return memo;
+  }, [i >= 0 ? 'Value' : 'First value']);
+  var col1Chars = maxChars(col1Arr);
+  var col2Chars = maxChars(col2Arr);
+  var sepStr = (utils.rpad('', col1Chars + 2, '-') + '+' +
+      utils.rpad('', col2Chars + 2, '-')).substr(0, MAX_RULE_LEN);
+  var sepLine = sepStr + '\n';
+  var table = sepLine;
+  col1Arr.forEach(function(col1, i) {
+    table += ' ' + utils.rpad(col1, col1Chars, ' ') + ' | ' +
+      col2Arr[i] + '\n';
+    if (i === 0) table += sepLine; // separator after first line
+  });
+  return table + sepLine;
+}
 
-MapShaper.formatNumber = function(val) {
+function formatNumber(val) {
   return val + '';
-};
+}
 
-MapShaper.formatString = function(str) {
+function maxChars(arr) {
+  return arr.reduce(function(memo, str) {
+    return str.length > memo ? str.length : memo;
+  }, 0);
+}
+
+function formatString(str) {
   var replacements = {
     '\n': '\\n',
     '\r': '\\r',
@@ -93,34 +150,34 @@ MapShaper.formatString = function(str) {
   };
   str = str.replace(/[\r\t\n]/g, cleanChar);
   return "'" + str + "'";
-};
+}
 
-MapShaper.countIntegralChars = function(val) {
-  return utils.isNumber(val) ? (MapShaper.formatNumber(val) + '.').indexOf('.') : 0;
-};
+function countIntegralChars(val) {
+  return utils.isNumber(val) ? (formatNumber(val) + '.').indexOf('.') : 0;
+}
 
-MapShaper.formatTableItem = function(name, val, col1Chars, integralChars) {
-  var str = utils.rpad(name, col1Chars, ' ');
+export function formatTableValue(val, integralChars) {
+  var str;
   if (utils.isNumber(val)) {
-    str += utils.lpad("", integralChars - MapShaper.countIntegralChars(val), ' ') +
-      MapShaper.formatNumber(val);
+    str = utils.lpad("", integralChars - countIntegralChars(val), ' ') +
+      formatNumber(val);
   } else if (utils.isString(val)) {
-    str += MapShaper.formatString(val);
+    str = formatString(val);
   } else if (utils.isObject(val)) { // if {} or [], display JSON
-    str += JSON.stringify(val);
+    str = JSON.stringify(val);
   } else {
-    str += String(val);
+    str = String(val);
   }
   return str;
-};
+}
 
-MapShaper.getSimplificationInfo = function(arcs) {
+function getSimplificationInfo(arcs) {
   var nodeCount = new NodeCollection(arcs).size();
   // get count of non-node vertices
-  var internalVertexCount = MapShaper.countInteriorVertices(arcs);
-};
+  var internalVertexCount = countInteriorVertices(arcs);
+}
 
-MapShaper.countInteriorVertices = function(arcs) {
+function countInteriorVertices(arcs) {
   var count = 0;
   arcs.forEach2(function(i, n) {
     if (n > 2) {
@@ -128,4 +185,4 @@ MapShaper.countInteriorVertices = function(arcs) {
     }
   });
   return count;
-};
+}

@@ -1,19 +1,22 @@
-/* @requires mapshaper-simplify-stats */
+import { calcSimplifyStats } from '../simplify/mapshaper-simplify-stats';
+import { useSphericalSimplify, getSimplifyMethod } from '../commands/mapshaper-simplify';
+import { message } from '../utils/mapshaper-logging';
+import utils from '../utils/mapshaper-utils';
+import Visvalingam from '../simplify/mapshaper-visvalingam';
 
-
-MapShaper.getSimplifyMethodLabel = function(slug) {
+function getSimplifyMethodLabel(slug) {
   return {
     dp: "Ramer-Douglas-Peucker",
     visvalingam: "Visvalingam",
     weighted_visvalingam: "Weighted Visvalingam"
   }[slug] || "Unknown";
-};
+}
 
-MapShaper.printSimplifyInfo = function(arcs, opts) {
-  var method = MapShaper.getSimplifyMethod(opts);
-  var name = MapShaper.getSimplifyMethodLabel(method);
-  var spherical = MapShaper.useSphericalSimplify(arcs, opts);
-  var stats = MapShaper.calcSimplifyStats(arcs, spherical);
+export function printSimplifyInfo(arcs, opts) {
+  var method = getSimplifyMethod(opts);
+  var name = getSimplifyMethodLabel(method);
+  var spherical = useSphericalSimplify(arcs, opts);
+  var stats = calcSimplifyStats(arcs, spherical);
   var pct1 = (stats.removed + stats.collapsedRings) / stats.uniqueCount || 0;
   var pct2 = stats.removed / stats.removableCount || 0;
   var aq = stats.angleQuartiles;
@@ -41,4 +44,4 @@ MapShaper.printSimplifyInfo = function(arcs, opts) {
   }
 
   message(lines.join('\n   '));
-};
+}

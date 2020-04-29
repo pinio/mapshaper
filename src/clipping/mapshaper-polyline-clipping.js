@@ -1,10 +1,8 @@
-/* @requires
-mapshaper-path-index
-*/
+import { PathIndex } from '../paths/mapshaper-path-index';
 
 // Assumes: Arcs have been divided
 //
-MapShaper.clipPolylines = function(targetShapes, clipShapes, nodes, type) {
+export function clipPolylines(targetShapes, clipShapes, nodes, type) {
   var index = new PathIndex(clipShapes, nodes.arcs);
 
   return targetShapes.map(function(shp) {
@@ -12,8 +10,9 @@ MapShaper.clipPolylines = function(targetShapes, clipShapes, nodes, type) {
   });
 
   function clipPolyline(shp) {
-    var clipped = shp.reduce(clipPath, []);
-    return clipped.length > 0 ? clipped : null;
+    var clipped = null;
+    if (shp) clipped = shp.reduce(clipPath, []);
+    return clipped && clipped.length > 0 ? clipped : null;
   }
 
   function clipPath(memo, path) {
@@ -33,4 +32,4 @@ MapShaper.clipPolylines = function(targetShapes, clipShapes, nodes, type) {
     }
     return memo;
   }
-};
+}

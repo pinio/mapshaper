@@ -3,8 +3,7 @@ var api = require('..'),
   assert = require('assert'),
   ArcCollection = api.internal.ArcCollection,
   ArcIter = api.internal.ArcIter,
-  Utils = api.utils,
-  trace = Utils.trace;
+  utils = api.utils;
 
 //      b --- d
 //     / \   /
@@ -38,8 +37,6 @@ var arcs5 = [];
 describe('mapshaper-arcs.js', function () {
   describe('ArcCollection', function () {
 
-
-
     describe('dedupCoords()', function () {
       it('NaNs are removed', function() {
         var xy = [[[NaN, NaN], [NaN, NaN], [NaN, NaN]], [[NaN, NaN], [NaN, NaN]]];
@@ -48,6 +45,7 @@ describe('mapshaper-arcs.js', function () {
         assert.deepEqual(arcs.toArray(), [[], []]);
         assert.equal(arcs.getPointCount(), 0);
       });
+
       it('collapsed arcs get zeroed out', function () {
         var xy = [[[1, 1], [1, 1], [1, 1]], [[2, 1], [2, 2]]];
         var arcs = new ArcCollection(xy);
@@ -66,6 +64,17 @@ describe('mapshaper-arcs.js', function () {
         assert.deepEqual(zz2, [Infinity, 6, 4, Infinity]);
         assert.deepEqual(arcs.toArray(), [[[1, 1], [2, 2], [3, 3], [4, 4]]])
       })
+    })
+
+    it("getCopy() preserves simplification data", function() {
+        var xy = [[[1, 1], [1, 1], [2, 2], [2, 2], [3, 3], [3, 3], [4, 4], [4, 4]]];
+        var zz = [Infinity, 4, 5, 6, 4, 3, 2, Infinity];
+        var arcs = new ArcCollection(xy);
+        arcs.setThresholds(zz);
+        arcs.setRetainedInterval(4);
+        var copy = arcs.getCopy();
+        assert.equal(copy.getRetainedInterval(), 4);
+        assert.deepEqual([].slice.call(copy.getVertexData().zz), [Infinity, 4, 5, 6, 4, 3, 2, Infinity]);
     })
 
     it("accepts arcs with length == 0", function() {
@@ -139,20 +148,20 @@ describe('mapshaper-arcs.js', function () {
       var thresholds = [[Infinity, Infinity, Infinity], [Infinity, Infinity], [Infinity, Infinity, Infinity]];
       var arcs = new ArcCollection(arcs1).setThresholds(thresholds);
       var removable = arcs.getRemovableThresholds();
-      assert.deepEqual([], Utils.toArray(removable));
+      assert.deepEqual([], utils.toArray(removable));
 
       var removable2 = arcs.getRemovableThresholds(2);
-      assert.deepEqual([], Utils.toArray(removable2));
+      assert.deepEqual([], utils.toArray(removable2));
     });
 
     it('#getRemovableThresholds(), three removable points', function() {
       var thresholds = [[Infinity, 5, 4, Infinity], [Infinity, Infinity, 7, Infinity]];
       var arcs = new ArcCollection(arcs2).setThresholds(thresholds);
       var removable = arcs.getRemovableThresholds();
-      assert.deepEqual([5, 4, 7], Utils.toArray(removable));
+      assert.deepEqual([5, 4, 7], utils.toArray(removable));
 
       var removable2 = arcs.getRemovableThresholds(2);
-      assert.deepEqual([7], Utils.toArray(removable2));
+      assert.deepEqual([7], utils.toArray(removable2));
     });
 
     it('#getThresholdByPct(), nothing to remove', function() {

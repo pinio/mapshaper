@@ -1,5 +1,5 @@
-/* @requires shp-type */
-
+import ShpType from '../shapefile/shp-type';
+import { error } from '../utils/mapshaper-logging';
 
 var NullRecord = function() {
   return {
@@ -23,7 +23,7 @@ var NullRecord = function() {
 //   readZBounds(), readZ() (Z types except POINTZ)
 //   readMBounds(), readM(), hasM() (M and Z types, except POINT[MZ])
 //
-function ShpRecordClass(type) {
+export default function ShpRecordClass(type) {
   var hasBounds = ShpType.hasBounds(type),
       hasParts = ShpType.isMultiPartType(type),
       hasZ = ShpType.isZType(type),
@@ -165,6 +165,21 @@ function ShpRecordClass(type) {
       if (xy.length != j) error('Counting error');
     },
 
+    // TODO: consider switching to this simpler functino
+    stream2: function(sink) {
+      var sizes = this.readPartSizes(),
+          bin = this._data().skipBytes(this._xypos()),
+          i = 0, n;
+      while (i < sizes.length) {
+        n = sizes[i];
+        while (n-- > 0) {
+          sink.addPoint(bin.readFloat64(), bin.readFloat64());
+        }
+        sink.endPath();
+        i++;
+      }
+    },
+
     read: function() {
       var parts = [],
           sizes = this.readPartSizes(),
@@ -227,12 +242,12 @@ function ShpRecordClass(type) {
   };
 
   if (singlePoint) {
-    utils.extend(proto, singlePointProto);
+    Object.assign(proto, singlePointProto);
   } else {
-    utils.extend(proto, multiCoordProto);
+    Object.assign(proto, multiCoordProto);
   }
-  if (hasZ) utils.extend(proto, zProto);
-  if (hasM) utils.extend(proto, mProto);
+  if (hasZ) Object.assign(proto, zProto);
+  if (hasM) Object.assign(proto, mProto);
 
   constructor.prototype = proto;
   proto.constructor = constructor;

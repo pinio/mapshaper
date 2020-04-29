@@ -1,4 +1,5 @@
 var api = require('../'),
+    internal = api.internal,
     deepStrictEqual = require('deep-eql'),
     utils = api.utils,
     assert = require('assert');
@@ -12,6 +13,111 @@ function fixPath(p) {
 }
 
 describe('mapshaper-delim-import.js', function() {
+
+  describe('csv decoding with -i', function () {
+    it('-i csv-lines= csv-field-names= csv-fields= options', function(done) {
+      var cmd = '-i test/data/text/states.csv csv-fields=A,D ' +
+        'csv-field-names=A,B,C,D,E,F csv-skip-lines=1 csv-lines=2 -o format=json';
+      api.applyCommands(cmd, {}, function(err, out) {
+        var json = JSON.parse(out['states.json']);
+        assert.deepEqual(json, [{ A: 'Alabama', D: 'AL' }, { A: 'Alaska', D: 'AK' }]);
+        done();
+      })
+    });
+
+    it('-i field-types= works with :str type hint', function (done) {
+      var input = "fips\n00001";
+      api.applyCommands('-i field-types=fips:str', input, function(err, output) {
+        if (err) throw err;
+        assert.equal(err, null);
+        assert.equal(output, "fips\n00001");
+        done();
+      });
+    })
+
+    it('handle missing values in numeric fields', function(done) {
+      var target = `Residence_Addresses_Latitude,Residence_Addresses_Longitude,Residence_Addresses_LatLongAccuracy,County,Voters_FIPS,Precinct
+38.25722,-119.226515,GeoMatch5Digit,MONO,051,BRIDGEPORT
+,,,MONO,051,BRIDGEPORT`;
+      api.applyCommands('-i test/data/text/empty_fields.csv string-fields=Voters_FIPS -info -o data.csv',  function(err, out) {
+        var output = out['data.csv'].toString();
+        assert.equal(output, target);
+        done();
+      });
+    })
+
+    it('handle missing values in numeric fields 2', function(done) {
+      var target = `County,Voters_FIPS,Precinct,Residence_Addresses_Latitude,Residence_Addresses_Longitude,Residence_Addresses_LatLongAccuracy
+LOS ANGELES,037,ALTADENA-0046,34.1911,-118.158,GeoMatchRooftop
+LOS ANGELES,037,ALTADENA-0048,,,`;
+      api.applyCommands('-i test/data/text/empty_fields2.csv string-fields=Voters_FIPS  -o data.csv',  function(err, out) {
+        var output = out['data.csv'].toString();
+        assert.equal(output, target);
+        done();
+      });
+    })
+
+    it('filter fields with csv-fields= option', function(done) {
+      var target = `County,Residence_Addresses_Latitude,Residence_Addresses_Longitude
+LOS ANGELES,34.1911,-118.158
+LOS ANGELES,,`;
+      api.applyCommands('-i test/data/text/empty_fields2.csv csv-fields=County,Residence_Addresses_Latitude,Residence_Addresses_Longitude  -o data.csv',  function(err, out) {
+          var output = out['data.csv'].toString();
+          assert.equal(output, target);
+          done();
+        });
+      })
+
+    it('handle empty files', function(done) {
+      api.applyCommands('-i empty.csv -o', {'empty.csv': ''}, function(err, out) {
+        assert(!err);
+        assert.strictEqual(out['empty.csv'], '');
+        done();
+      });
+    });
+
+    it('handle files with no data rows', function(done) {
+      api.applyCommands('-i empty.csv -o', {'empty.csv': 'ID,STATE,VALUE'}, function(err, out) {
+        assert(!err);
+        // field names are lost
+        assert.strictEqual(out['empty.csv'], '');
+        done();
+      });
+    });
+
+    it('missing fields are filled out with nulls', function(done) {
+      api.applyCommands('-i test.csv -o', {'test.csv': 'ID,STATE,VALUE\n1\n2,WA,300'}, function(err, out) {
+        assert(!err);
+        assert.strictEqual(out['test.csv'], 'ID,STATE,VALUE\n1,,\n2,WA,300');
+        done();
+      });
+    });
+
+    it('extra fields are dropped', function(done) {
+      api.applyCommands('-i test.csv -o', {'test.csv': 'ID,STATE\n1,OR,3000\n2,WA'}, function(err, out) {
+        assert(!err);
+        assert.strictEqual(out['test.csv'], 'ID,STATE\n1,OR\n2,WA');
+        done();
+      });
+    });
+
+    it('latin-1', function (done) {
+      var buf = internal.encodeString('chars,chars2\r\n»¼ü©Å÷,è绿', 'latin1');
+      api.applyCommands('-i chars.csv encoding=latin1 -o out.tsv', {'chars.csv': buf}, function(err, output) {
+        assert.equal(output['out.tsv'], 'chars\tchars2\n»¼ü©Å÷\tè?');
+        done();
+      })
+    })
+
+    it('big5', function (done) {
+      var buf = internal.encodeString('a|b\r\n長生殿|彈詞', 'big5');
+      api.applyCommands('-i chars.csv encoding=big5 -o delimiter=; out.csv', {'chars.csv': buf}, function(err, output) {
+        assert.equal(output['out.csv'], 'a;b\n長生殿;彈詞');
+        done();
+      })
+    })
+  })
+
 
   function importRecords(str, opts) {
       var dataset = api.internal.importDelim(str, opts);
@@ -33,6 +139,48 @@ describe('mapshaper-delim-import.js', function() {
       assert(deepStrictEqual(records, target));
     })
 
+    it('detect numeric field when whitespace is present', function() {
+      var str = 'a\tb\tc\n 3\t4 \t  5  ';
+      var records = importRecords(str);
+      var target = [{a:3, b:4, c:5}];
+      assert(deepStrictEqual(records, target));
+    })
+
+    it('detect numeric field when field contains "NA" (from R export) or "NaN"', function() {
+      var str = 'a,b,c,d\n  NA,4,NA,NaN\n3,"NA",NA,9';
+      var records = importRecords(str);
+      var target = [{a:null, b:4, c:"NA", d: null}, {a:3, b:null, c:"NA", d: 9}];
+      assert(deepStrictEqual(records, target));
+    })
+
+    it('detect string field when first value looks like a number', function() {
+      var str = 'a,b\n2,0\n4a,8x';
+      var records = importRecords(str);
+      var target = [{a:'2', b:'0'}, {a:'4a', b:'8x'}];
+      assert(deepStrictEqual(records, target));
+    })
+
+    it('retain whitespace in string fields', function() {
+      var str = 'a,b,c\n" ", , a ';
+      var records = importRecords(str);
+      var target = [{a:' ', b:' ', c:' a '}];
+      assert(deepStrictEqual(records, target));
+    })
+
+    it('type hints prevent auto-detection of number fields', function() {
+      var str = 'a\tb\tc\n3\t4\t5';
+      var records = importRecords(str, {field_types: ['a:str','b:string']});
+      var target = [{a:"3", b:"4", c:5}];
+      assert(deepStrictEqual(records, target));
+    })
+
+    it('type hints force numeric conversion', function() {
+      var str = 'a\tb\tc\nfour\t\t5';
+      var records = importRecords(str, {field_types: ['a:num','b:number']});
+      var target = [{a:null, b:null, c:5}];
+      assert(deepStrictEqual(records, target));
+    })
+
     it('ignore unnamed columns', function() {
       stringifyEqual(importRecords('\n\n'), [{}]);
       stringifyEqual(importRecords(',foo,\na,b,c\n'), [{foo:'b'}]);
@@ -41,13 +189,11 @@ describe('mapshaper-delim-import.js', function() {
    it('ignore whitespace column names', function() {
       stringifyEqual(importRecords(' ,  ,foo, \na,b,c,d\n'), [{foo: 'c'}]);
     })
-
   })
-
 
   describe('infer export delimiter from filename, if possible', function () {
     it('.tsv implies tab-delimited text', function (done) {
-      var cmd = '-i test/test_data/text/two_states.csv -o output.tsv';
+      var cmd = '-i test/data/text/two_states.csv -o output.tsv';
       api.applyCommands(cmd, {}, function(err, output) {
         assert.ok(output['output.tsv'].indexOf('\t') > -1); // got tabs
         done();
@@ -55,7 +201,7 @@ describe('mapshaper-delim-import.js', function() {
     })
 
     it('use input delimiter if export filename is ambiguous', function (done) {
-      var cmd = '-i test/test_data/text/two_states.csv -o output.txt';
+      var cmd = '-i test/data/text/two_states.csv -o output.txt';
       api.applyCommands(cmd, {}, function(err, output) {
         var o = output[0];
         assert.ok(output['output.txt'].indexOf(',') > -1); // got commas
@@ -64,7 +210,7 @@ describe('mapshaper-delim-import.js', function() {
     })
 
     it('use comma as default delimiter if other methods fail', function (done) {
-      var cmd = '-i test/test_data/two_states.shp -o output.txt';
+      var cmd = '-i test/data/two_states.shp -o output.txt';
       api.applyCommands(cmd, {}, function(err, output) {
         var o = output[0];
         assert.ok(output['output.txt'].indexOf(',') > -1); // got commas
@@ -73,7 +219,7 @@ describe('mapshaper-delim-import.js', function() {
     })
 
     it('.csv in output filename implies comma-delimited text', function (done) {
-      var cmd = '-i test/test_data/text/two_states.tsv -o output.csv';
+      var cmd = '-i test/data/text/two_states.tsv -o output.csv';
       api.applyCommands(cmd, {}, function(err, output) {
         var o = output[0];
         assert.ok(output['output.csv'].indexOf(',') > -1); // got commas
@@ -82,9 +228,19 @@ describe('mapshaper-delim-import.js', function() {
     })
   })
 
+  false && describe('Auto-detecting UTF-8 and UTF-16 with BOM', function () {
+    it('utf16be sample', function (done) {
+      var cmd = '-i test/data/text/utf16_le_bom.csv -o out.csv'; //
+      api.applyCommands(cmd, {}, function(err, output) {
+        console.log(output['out.csv']);
+        done();
+      });
+    })
+  })
+
   describe('Importing dsv with encoding= option', function() {
     it ('utf16 (be)', function(done) {
-      var cmd = '-i test/test_data/text/utf16.txt encoding=utf16';
+      var cmd = '-i test/data/text/utf16.txt encoding=utf16';
       api.internal.testCommands(cmd, function(err, data) {
         assert.deepEqual(data.layers[0].data.getRecords(), [{NAME: '国语國語'}])
         done();
@@ -92,7 +248,7 @@ describe('mapshaper-delim-import.js', function() {
     })
 
     it ('utf16 (be) with BOM', function(done) {
-      var cmd = '-i test/test_data/text/utf16bom.txt encoding=utf16';
+      var cmd = '-i test/data/text/utf16bom.txt encoding=utf16';
       api.internal.testCommands(cmd, function(err, data) {
         var rec = data.layers[0].data.getRecords()[0];
         assert.deepEqual(rec, {NAME: '国语國語'})
@@ -101,7 +257,7 @@ describe('mapshaper-delim-import.js', function() {
     })
 
     it ('utf16be with BOM', function(done) {
-      var cmd = '-i test/test_data/text/utf16bom.txt encoding=utf-16be';
+      var cmd = '-i test/data/text/utf16bom.txt encoding=utf-16be';
       api.internal.testCommands(cmd, function(err, data) {
         var rec = data.layers[0].data.getRecords()[0];
         assert.deepEqual(rec, {NAME: '国语國語'})
@@ -110,7 +266,7 @@ describe('mapshaper-delim-import.js', function() {
     })
 
     it ('utf16le with BOM', function(done) {
-      var cmd = '-i test/test_data/text/utf16le_bom.txt encoding=utf16le';
+      var cmd = '-i test/data/text/utf16le_bom.txt encoding=utf16le';
       api.internal.testCommands(cmd, function(err, data) {
         var rec = data.layers[0].data.getRecords()[0];
         assert.deepEqual(rec, {NAME: '国语國語'})
@@ -119,7 +275,7 @@ describe('mapshaper-delim-import.js', function() {
     })
 
     it ('utf8 with BOM', function(done) {
-      var cmd = '-i test/test_data/text/utf8bom.txt';
+      var cmd = '-i test/data/text/utf8bom.txt';
       api.internal.testCommands(cmd, function(err, data) {
         var rec = data.layers[0].data.getRecords()[0];
         assert.deepEqual(rec, {NAME: '国语國語'})
@@ -129,17 +285,6 @@ describe('mapshaper-delim-import.js', function() {
 
   })
 
-  describe('Importing dsv with -i command', function () {
-    it('-i field-types= works with :str type hint', function (done) {
-      var input = "fips\n00001";
-      api.applyCommands('-i field-types=fips:str', input, function(err, output) {
-        if (err) throw err;
-        assert.equal(err, null);
-        assert.equal(output, "fips\n00001");
-        done();
-      });
-    })
-  })
 
   describe('parseNumber()', function() {
     it('undefined -> null', function() {
@@ -154,49 +299,62 @@ describe('mapshaper-delim-import.js', function() {
       assert.equal(utils.parseNumber('1e3'), 1000);
     })
 
-  })
-
-  describe('stringIsNumeric()', function () {
-    it('identifies decimal numbers', function() {
-      assert.ok(utils.stringIsNumeric('-43.2'))
+    it (',, -> null', function() {
+      assert.strictEqual(utils.parseNumber(',,'), null);
     })
 
-    it('identifies numbers with spaces', function() {
-      assert.ok(utils.stringIsNumeric('-2.0  '))
-      assert.ok(utils.stringIsNumeric('  0'))
+    it (', -> null', function() {
+      assert.strictEqual(utils.parseNumber(','), null);
+    })
+
+    it ('. -> null', function() {
+      assert.strictEqual(utils.parseNumber('.'), null);
+    })
+
+    it('parses decimal numbers', function() {
+      assert.equal(utils.parseNumber('-43.2'), -43.2)
+    })
+
+    it('parses decimal numbers with positive sign', function() {
+      assert.equal(utils.parseNumber('+43.2'), 43.2)
+    })
+
+    it('parses numbers with spaces', function() {
+      assert.equal(utils.parseNumber('-2.0  '), -2)
+      assert.strictEqual(utils.parseNumber('  0'), 0)
     })
 
     it('identifies numbers with comma delimiters', function() {
-      assert.ok(utils.stringIsNumeric('3,211'))
-      assert.ok(utils.stringIsNumeric('-2,000,000.0  '))
+      assert.strictEqual(utils.parseNumber('3,211'), 3211)
+      assert.strictEqual(utils.parseNumber('-2,000,000.0  '), -2e6)
     })
 
     it('identifies scientific notation', function() {
-      assert.ok(utils.stringIsNumeric('1.3e3'));
+      assert.strictEqual(utils.parseNumber('1.3e3'), 1.3e3);
     })
 
     it('reject alphabetic words', function() {
-      assert.equal(utils.stringIsNumeric('Alphabet'), false)
+      assert.strictEqual(utils.parseNumber('Alphabet'), null)
     })
 
-    it('rejects hex numbers', function() {
-      assert.ok(!utils.stringIsNumeric('0xcc'));
+    it('parse hex numbers', function() {
+      assert.strictEqual(utils.parseNumber('0xcc'), 0xcc);
     })
 
     it('reject empty strings', function() {
-      assert.equal(utils.stringIsNumeric(''), false)
-      assert.equal(utils.stringIsNumeric(' '), false)
+      assert.strictEqual(utils.parseNumber(''), null)
+      assert.strictEqual(utils.parseNumber(' '), null)
     })
 
     it('rejects street addresses', function() {
-      assert.equal(utils.stringIsNumeric('312 Orchard St'), false);
+      assert.strictEqual(utils.parseNumber('312 Orchard St'), null);
     })
 
-    it('reject dates', function() {
-      assert.equal(utils.stringIsNumeric('2013-12-03'), false);
+    it('rejects dates', function() {
+      assert.strictEqual(utils.parseNumber('2013-12-03'), null);
     })
 
-    // TODO: handle hex numbers, comma-separated numbers, European decimals
+    // TODO: European decimals?
   })
 
   describe('guessDelimiter()', function () {
@@ -217,110 +375,191 @@ describe('mapshaper-delim-import.js', function() {
     })
   })
 
-  describe('parseFieldHeaders', function () {
+  describe('getFieldTypeHints()', function () {
     it('identify number and string types', function () {
-      var index = {};
-      var fields = "fips:string,count:number,other".split(',');
-      fields = api.internal.parseFieldHeaders(fields, index);
-      assert.deepEqual(fields, ['fips', 'count', 'other']);
+      var opts = {field_types: "fips:string,count:number,other".split(',')};
+      var index = api.internal.getFieldTypeHints(opts);
       assert.deepEqual(index, {fips: 'string', count: 'number'})
     })
 
     it('accept alternate type names', function () {
-      var fields = "fips:s,count:n,other:STR".split(',');
-      var index = {};
-      fields = api.internal.parseFieldHeaders(fields, index);
-      assert.deepEqual(fields, ['fips', 'count', 'other']);
+      var opts = {field_types: "fips:s,count:n,other:STR".split(',')};
+      var index = api.internal.getFieldTypeHints(opts);
       assert.deepEqual(index, {fips: 'string', count: 'number', other: 'string'})
     })
 
     it('accept + prefix for numeric types', function () {
-      var index = {};
-      var fields = "+count,+other".split(',');
-      fields = api.internal.parseFieldHeaders(fields, index);
-      assert.deepEqual(fields, ['count', 'other']);
+      var opts = {field_types: "+count,+other".split(',')};
+      var index = api.internal.getFieldTypeHints(opts);
       assert.deepEqual(index, {count: 'number', other: 'number'})
     })
 
     it('accept inconsistent type hints', function () {
-      var fields = "fips,count,fips:str".split(',');
-      var index = {};
-      fields = api.internal.parseFieldHeaders(fields, index);
-      assert.deepEqual(fields, ['fips', 'count', 'fips']);
+      var opts = {field_types: "fips,count,fips:str".split(',')};
+      var index = api.internal.getFieldTypeHints(opts);
       assert.deepEqual(index, {fips: 'string'})
     })
 
     it('accept inconsistent type hints 2', function () {
-      var fields = "fips:str,count,fips".split(',');
-      var index = {};
-      fields = api.internal.parseFieldHeaders(fields, index);
-      assert.deepEqual(fields, ['fips', 'count', 'fips']);
+      var opts = {field_types: "fips:str,count,fips".split(',')};
+      var index = api.internal.getFieldTypeHints(opts);
       assert.deepEqual(index, {fips: 'string'})
     })
   })
 
   describe('adjustRecordTypes()', function () {
     it('convert numbers by default', function () {
-      var records = [{foo:"0", bar:"4,000,300", baz: "0xcc", goo: '300 E'}],
-          fields = ['foo', 'bar', 'baz', 'goo']
-      api.internal.adjustRecordTypes(records, fields);
-      stringifyEqual(records, [{foo:0, bar:4000300, baz: "0xcc", goo: '300 E'}])
+      var records = [{foo:"0", bar:"4,000,300", baz: "0xcc", goo: '300 E'}];
+      api.internal.adjustRecordTypes(records);
+      stringifyEqual(records, [{foo:0, bar:4000300, baz: 0xcc, goo: '300 E'}])
     })
 
     it('protect string-format numbers with type hints', function() {
       var records = [{foo:"001", bar:"001"}],
-          fields = ['foo:string', 'bar'];
-      api.internal.adjustRecordTypes(records, fields);
+          opts = {field_types: ['foo:string', 'bar']};
+      api.internal.adjustRecordTypes(records, opts);
       stringifyEqual(records, [{foo:"001", bar:1}])
+    })
+
+    it('protect string-format numbers with string-fields= option', function() {
+      var records = [{foo:"001", bar:"001"}],
+          opts = {string_fields: ['foo']};
+      api.internal.adjustRecordTypes(records, opts);
+      stringifyEqual(records, [{foo:"001", bar:1}])
+    })
+
+    it('string-fields=* matches all fields', function() {
+      var records = [{foo:"001", bar:"001"}],
+          opts = {string_fields: ['*']};
+      api.internal.adjustRecordTypes(records, opts);
+      stringifyEqual(records, [{foo:"001", bar:"001"}])
     })
 
     it('bugfix 1: handle numeric data (e.g. from dbf)', function() {
       var records = [{a: 0, b: 23.2, c: -12}],
-          fields = ['a', 'b:number', 'c'];
-      api.internal.adjustRecordTypes(records, fields);
+          opts = {field_types: ['a', 'b:number', 'c']};
+      api.internal.adjustRecordTypes(records, opts);
       stringifyEqual(records, [{a: 0, b: 23.2, c: -12}])
     })
 
   })
 
+
+  describe('importDelim2()', function () {
+    it('import from a file', function () {
+      var input = {
+        filename: 'test/data/text/states.csv'
+      };
+      var output = api.internal.importDelim2(input);
+      var records = output.layers[0].data.getRecords();
+      assert.equal(records.length, 52)
+      assert.deepEqual(records[0], {
+        STATE_NAME: 'Alabama',
+        STATE_FIPS: 1,
+        SUB_REGION: 'East South Central',
+        STATE_ABBR: 'AL',
+        POP2010: 4779736,
+        POP10_SQMI: 92.5
+      })
+    })
+
+    it('import file with filter', function () {
+      var input = {
+        filename: 'test/data/text/states.csv'
+      };
+      var opts = {
+        csv_filter: 'STATE_NAME == "Colorado"'
+      };
+      var output = api.internal.importDelim2(input, opts);
+      var records = output.layers[0].data.getRecords();
+      assert.equal(records.length, 1)
+      assert.deepEqual(records[0], {
+        STATE_NAME: 'Colorado',
+        STATE_FIPS: 8,
+        SUB_REGION: 'Mountain',
+        STATE_ABBR: 'CO',
+        POP2010: 5029196,
+        POP10_SQMI: 48.30
+      })
+    })
+
+    it('import string with filter', function () {
+      var str = require('fs').readFileSync('test/data/text/states.csv', 'utf8');
+      var input = {
+        content: str
+      };
+      var opts = {
+        csv_filter: 'STATE_NAME == "Colorado"',
+        csv_fields: 'STATE_NAME,SUB_REGION,POP2010,POP10_SQMI'.split(',')
+      };
+      var output = api.internal.importDelim2(input, opts);
+      var records = output.layers[0].data.getRecords();
+      assert.equal(records.length, 1)
+      assert.deepEqual(records[0], {
+        STATE_NAME: 'Colorado',
+        SUB_REGION: 'Mountain',
+        POP2010: 5029196,
+        POP10_SQMI: 48.30
+      })
+    })
+
+  })
+
   describe('importDelim()', function () {
+    it('apply row filter before counting lines', function() {
+      var str = 'foo\na\nb\nc\nd\ne\nf';
+      var dataset = api.internal.importDelim(str, {csv_lines: 2, csv_filter:'foo != "a" && foo != "c"'});
+      var arr = dataset.layers[0].data.getRecords();
+      assert.deepEqual(arr, [{foo: 'b'}, {foo: 'd'}])
+    })
+
     it('should detect tab delimiter', function () {
       var str = 'a\tb\n1\t"boo ya"'
       var dataset = api.internal.importDelim(str);
       stringifyEqual(dataset.layers[0].data.getRecords(), [{a: 1, b: 'boo ya'}]);
       assert.equal(dataset.info.input_delimiter, '\t')
     })
-  })
 
-  describe('importDelimTable()', function () {
-    it('test 1', function () {
+    it('comma delim', function () {
       var str = 'a,b\n"1","2"';
-      var data = api.internal.importDelimTable(str, ',');
-      stringifyEqual(data.getRecords(), [{a: 1, b: 2}]);
+      var data = api.internal.importDelim(str);
+      stringifyEqual(data.layers[0].data.getRecords(), [{a: 1, b: 2}]);
     })
+
+    it('missing string field is imported as empty string', function() {
+      var str = 'a,b\nc,d\ne';
+      var data = api.internal.importDelim(str);
+      assert.deepStrictEqual(data.layers[0].data.getRecords(), [{a: 'c', b: 'd'}, {a: 'e', b: ''}])
+    });
+
+    it('missing number is imported as null', function() {
+      var str = 'a,b\n,1\n2,3';
+      var data = api.internal.importDelim(str);
+      assert.deepStrictEqual(data.layers[0].data.getRecords(), [{a: null, b: 1}, {a: 2, b: 3}])
+    });
 
     it('parse csv with quoted field including comma', function () {
       var str = 'a,b\n1,"foo, bar"'
-      var data = api.internal.importDelimTable(str, ',');
-      stringifyEqual(data.getRecords(), [{a: 1, b: 'foo, bar'}]);
+      var data = api.internal.importDelim(str);
+      stringifyEqual(data.layers[0].data.getRecords(), [{a: 1, b: 'foo, bar'}]);
     })
 
     it('import tab-delim, quoted string', function () {
       var str = 'a\tb\n1\t"boo ya"'
-      var data = api.internal.importDelimTable(str, '\t');
-      stringifyEqual(data.getRecords(), [{a: 1, b: 'boo ya'}]);
+      var data = api.internal.importDelim(str);
+      stringifyEqual(data.layers[0].data.getRecords(), [{a: 1, b: 'boo ya'}]);
     })
 
     it('import pipe-delim, trailing newline', function () {
       var str = 'a|b\n1|"boo"\n'
-      var data = api.internal.importDelimTable(str, '|');
-      stringifyEqual(data.getRecords(), [{a: 1, b: 'boo'}]);
+      var data = api.internal.importDelim(str);
+      stringifyEqual(data.layers[0].data.getRecords(), [{a: 1, b: 'boo'}]);
     })
 
     it('import single column of values w/ mixed return types', function () {
       var str = 'a\n1\r\n0\r30'
-      var data = api.internal.importDelimTable(str, ',');
-      stringifyEqual(data.getRecords(), [{a: 1}, {a: 0}, {a: 30}]);
+      var data = api.internal.importDelim(str);
+      stringifyEqual(data.layers[0].data.getRecords(), [{a: 1}, {a: 0}, {a: 30}]);
     })
 
   })

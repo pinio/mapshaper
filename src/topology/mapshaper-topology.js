@@ -1,24 +1,23 @@
-/* @requires
-mapshaper-common
-mapshaper-arcs
-mapshaper-shape-utils
-mapshaper-arc-index
-mapshaper-topology-chains-v2
-*/
 
-// Converts all polygon and polyline paths in a dataset to a topological format,
-// (in-place);
-api.buildTopology = function(dataset) {
+import { ArcIndex } from '../topology/mapshaper-arc-index';
+import { initPointChains } from '../topology/mapshaper-topology-chains-v2';
+import { reversePath } from '../paths/mapshaper-path-utils';
+import { absArcId } from '../paths/mapshaper-arc-utils';
+import { error } from '../utils/mapshaper-logging';
+
+// Converts all polygon and polyline paths in a dataset to a topological format
+// (in-place)
+export function buildTopology(dataset) {
   if (!dataset.arcs) return;
   var raw = dataset.arcs.getVertexData(),
-      cooked = MapShaper.buildPathTopology(raw.nn, raw.xx, raw.yy);
+      cooked = buildPathTopology(raw.nn, raw.xx, raw.yy);
   dataset.arcs.updateVertexData(cooked.nn, cooked.xx, cooked.yy);
   dataset.layers.forEach(function(lyr) {
     if (lyr.geometry_type == 'polyline' || lyr.geometry_type == 'polygon') {
-      lyr.shapes = MapShaper.replaceArcIds(lyr.shapes, cooked.paths);
+      lyr.shapes = replaceArcIds(lyr.shapes, cooked.paths);
     }
   });
-};
+}
 
 // buildPathTopology() converts non-topological paths into
 // a topological format
@@ -39,7 +38,7 @@ api.buildTopology = function(dataset) {
 //
 // Negative arc ids in the paths array indicate a reversal of arc -(id + 1)
 //
-MapShaper.buildPathTopology = function(nn, xx, yy) {
+export function buildPathTopology(nn, xx, yy) {
   var pointCount = xx.length,
       chainIds = initPointChains(xx, yy),
       pathIds = initPathIds(pointCount, nn),
@@ -186,7 +185,7 @@ MapShaper.buildPathTopology = function(nn, xx, yy) {
   }
 
   function addSplitEdge(start1, end1, start2, end2) {
-    var arcId = index.findMatchingArc(xx, yy, start1, end2, nextPoint, prevPoint);
+    var arcId = index.findDuplicateArc(xx, yy, start1, end2, nextPoint, prevPoint);
     if (arcId === null) {
       arcId = index.addArc(mergeArcParts(xx, start1, end1, start2, end2),
           mergeArcParts(yy, start1, end1, start2, end2));
@@ -196,7 +195,7 @@ MapShaper.buildPathTopology = function(nn, xx, yy) {
 
   function addEdge(start, end) {
     // search for a matching edge that has already been generated
-    var arcId = index.findMatchingArc(xx, yy, start, end, nextPoint, prevPoint);
+    var arcId = index.findDuplicateArc(xx, yy, start, end, nextPoint, prevPoint);
     if (arcId === null) {
       arcId = index.addArc(slice.call(xx, start, end + 1),
           slice.call(yy, start, end + 1));
@@ -221,12 +220,12 @@ MapShaper.buildPathTopology = function(nn, xx, yy) {
     }
 
     for (var i=startId; i<endId; i++) {
-      arcId = index.findMatchingArc(xx, yy, i, i, nextPoint, prevPoint);
+      arcId = index.findDuplicateArc(xx, yy, i, i, nextPoint, prevPoint);
       if (arcId !== null) return arcId;
     }
     error("Unmatched ring; id:", pathId, "len:", nn[pathId]);
   }
-};
+}
 
 
 // Create a lookup table for path ids; path ids are indexed by point id
@@ -242,7 +241,7 @@ function initPathIds(size, pathSizes) {
   return pathIds;
 }
 
-MapShaper.replaceArcIds = function(src, replacements) {
+function replaceArcIds(src, replacements) {
   return src.map(function(shape) {
     return replaceArcsInShape(shape, replacements);
   });
@@ -261,7 +260,7 @@ MapShaper.replaceArcIds = function(src, replacements) {
       if (topoPath) {
         if (id < 0) {
           topoPath = topoPath.concat(); // TODO: need to copy?
-          MapShaper.reversePath(topoPath);
+          reversePath(topoPath);
         }
         for (var i=0, n=topoPath.length; i<n; i++) {
           memo.push(topoPath[i]);
@@ -270,4 +269,4 @@ MapShaper.replaceArcIds = function(src, replacements) {
       return memo;
     }, []);
   }
-};
+}

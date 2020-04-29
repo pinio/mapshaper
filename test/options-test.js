@@ -1,33 +1,38 @@
 var api = require('../'),
-  assert = require('assert');
+  assert = require('assert'),
+  internal = api.internal;
 
 
 describe('mapshaper-options.js', function () {
 
   describe('import', function () {
-    var file1 = "test/test_data/two_states.shp",
-        file2 = "test/test_data/two_states.json",
-        file3 = "test/test_data/two_states.shx";
+    var file1 = "test/data/two_states.shp",
+        file2 = "test/data/two_states.json",
+        file3 = "test/data/two_states.shx";
 
     bad("-i precision " + file1);
     bad("-i precision 0 " + file1);
     // filename expansion
-    good('-i snap', {auto_snap: true}); // same as auto-snap
-    good('-i auto-snap', {auto_snap: true});
+    good('-i snap', {snap: true});
+    good('-i auto-snap', {snap: true});
     good('-i', {}); // now accepting no files
     good("-i " + file1, {files: [file1]});
     good("-i no-topology " + file1 + " auto-snap precision 0.1",
-      {files: [file1], auto_snap: true, no_topology: true, precision: 0.1});
-    good("-i " + file1 + " snap-interval 0.001", {snap_interval: 0.001, files: [file1]});
+      {files: [file1], snap: true, no_topology: true, precision: 0.1});
+    good("-i " + file1 + " snap-interval 0.001", {snap_interval: '0.001', files: [file1]});
+    good("-i " + file1 + " snap-interval 1ft", {snap_interval: '1ft', files: [file1]});
     good("-i merge-files " + file1 + " " + file2, {merge_files: true, files: [file1, file2]});
     good("-i combine-files " + file1 + " " + file2, {combine_files: true, files: [file1, file2]});
     good("-", {stdin: true});
     good("/dev/stdin", {stdin: true});
-    good("file.shp name=states", {files:['file.shp'], name: 'states'})
-    good("file.shp name=", {files:['file.shp'], name: ''})
-    good("file.shp name=''", {files:['file.shp'], name: ''})
-    good("file.shp name='a b'", {files:['file.shp'], name: 'a b'})
-    good("file.shp name 'a b'", {files:['file.shp'], name: 'a b'})
+    good("files=states.json", {files:['states.json']});
+    good("files=states.json,counties.json", {files:['states.json', 'counties.json']});
+    good("file.shp name=states", {files:['file.shp'], name: 'states'});
+    good("file.shp name=", {files:['file.shp'], name: ''});
+    good("file.shp name=''", {files:['file.shp'], name: ''});
+    good("file.shp name='a b'", {files:['file.shp'], name: 'a b'});
+    good("file.shp name 'a b'", {files:['file.shp'], name: 'a b'});
+    good("file1.shp file2.shp", {files:['file1.shp', 'file2.shp']}); // accepts multiple files
     // disallowing whitespace tokens
     // good("file.shp name ''", {files:['file.shp'], name: ''})
     // good("file.shp name '' no-topology", {files:['file.shp'], name: '', no_topology: true})
@@ -35,7 +40,7 @@ describe('mapshaper-options.js', function () {
  })
 
   describe('output', function() {
-    var dir1 = "test/test_data";
+    var dir1 = "test/data";
     bad("-o output.shx");
     bad("-o output.shp output.json"); // only one file per -o command
 
@@ -48,6 +53,9 @@ describe('mapshaper-options.js', function () {
     good("-o drop-table", {drop_table: true})
     good("-o -", {stdout: true})
     good("-o /dev/stdout", {stdout: true})
+
+    good("-o field-order=ascending", {field_order: "ascending"})
+    bad("-o field-order=descending");
 
     // topojson options
     good("-o quantization 10000", {quantization: 10000});
@@ -84,15 +92,25 @@ describe('mapshaper-options.js', function () {
     good("-o format=csv delimiter='\\t'", {format: "dsv", delimiter: "\t"});
   })
 
+  describe('colorizer', function () {
+    good('-colorizer breaks=0,10 colors="red white blue" name=col', {name: "col", breaks: [0, 10], colors: ["red", "white", "blue"]})
+    good('-colorizer categories="good,bad" colors=\'"#000", "white"\'',
+        {categories: ['good', 'bad'], colors: ['#000', 'white']});
+    // TODO: accept arguments like: colors="#000","#FFF"
+  })
+
+  describe('innerlines', function () {
+    bad("-innerlines FIELD"); // doesn't take an argument
+  })
+
   describe('each', function() {
     good('-each target=filtered \'name="foo"', {target: 'filtered', expression: 'name="foo"'});
   });
 
   describe('simplify', function() {
-    bad("-s") // no alias (add one?)
     bad("-simplify cartesian i 0.001")
-    good("-simplify visvalingam 10%", {method: "visvalingam", percentage: 0.1})
-    good("-simplify cartesian 1%", {planar: true, percentage: 0.01})
+    good("-simplify visvalingam 10%", {method: "visvalingam", percentage: '10%'})
+    good("-simplify cartesian 1%", {planar: true, percentage: '1%'})
 
     // invalid method names
     // now handled in simplify function
@@ -102,27 +120,28 @@ describe('mapshaper-options.js', function () {
     bad('-simplify 5% keep-shapes=true');
     bad('-simplify 5% dp=true');
 
-    good("-simplify 0%", {percentage: 0});
-    good("-simplify 0%", {percentage: 0});
-    good("-simplify 4%", {percentage: 0.04});
-    good("-simplify 0.04", {percentage: 0.04});
-    good("-simplify percentage=4%", {percentage: 0.04});
-    good("-simplify percentage=.04", {percentage: 0.04});
-    good("-simplify percentage 4%", {percentage: 0.04});
-    bad("-simplify 10");
-    bad("-simplify -5%");
-    bad("-simplify 101%");
-    bad("-simplify percentage=101%");
-    good("-simplify keep-shapes rdp 10%", {keep_shapes: true, method: "dp", percentage: 0.1});
-    bad("-simplify interval=10km"); // need integer
+    good("-simplify 0%", {percentage: '0%'});
+    good("-simplify 0%", {percentage: '0%'});
+    good("-simplify 4%", {percentage: '4%'});
+    good("-simplify 0.04", {percentage: '0.04'});
+    good("-simplify percentage=4%", {percentage: '4%'});
+    good("-simplify percentage=.04", {percentage: '.04'});
+    good("-simplify percentage 4%", {percentage: '4%'});
+    // percentage validation now occurs in -simplify command
+    // bad("-simplify 10");
+    // bad("-simplify -5%");
+    // bad("-simplify 101%");
+    // bad("-simplify percentage=101%");
+    // bad("-simplify 10km");
+    good("-simplify keep-shapes rdp 10%", {keep_shapes: true, method: "dp", percentage: '10%'});
+    // bad("-simplify interval=10km"); // need integer
     bad("-simplify percentage");
-    bad("-simplify 10km");
-    good("-simplify 3% no-repair", {percentage: 0.03, no_repair: true});
+    good("-simplify 3% no-repair", {percentage: '3%', no_repair: true});
   })
 
   describe('filter-fields', function () {
     good('-filter-fields STATE,FIPS:STATE_FIPS', {fields:["STATE", "FIPS:STATE_FIPS"]});
-    good('-filter-fields', {fields: []});
+    good('-filter-fields', {});
   })
 
   describe('filter', function () {
@@ -132,19 +151,22 @@ describe('mapshaper-options.js', function () {
   })
 
   describe('join', function() {
-    var file1 ="test/test_data/two_states.dbf",
-        file2 = "test/test_data/two_states.shp";
+    var file1 ="test/data/two_states.dbf",
+        file2 = "test/data/two_states.shp";
 
     good("-join " + file1 + " keys ID,FIPS fields FIPS,NAME", {source: file1, keys: ["ID","FIPS"], fields: ["FIPS","NAME"]})
     good("-join " + file1 + " keys ID,FIPS", {source: file1, keys: ["ID","FIPS"]}) // fields are optional
     good("-join " + file1 + " keys=ID,FIPS unjoined unmatched", {source: file1, keys: ['ID', 'FIPS'], unjoined: true, unmatched: true});
+
+    good("-join data.tsv field-types=FIPS:str keys=GEOID,FIPS", {source: 'data.tsv', keys: ['GEOID', 'FIPS'], field_types: ['FIPS:str']});
+    bad("-join data.tsv field-types:FIPS:str keys=GEOID,FIPS"); // catch invalid field-types argument
   })
 
   describe('clip', function () {
     good("-clip bbox=0,-23.1,1,1.2e6)", {bbox: [0, -23.1, 1, 1.2e6]});
     good("-clip polys.shp remove-slivers", {source: 'polys.shp', remove_slivers: true})
-    good("-clip polys.shp cleanup", {source: 'polys.shp', remove_slivers: true}) // rename old option
-    bad("-clip");
+    // good("-clip polys.shp cleanup", {source: 'polys.shp', remove_slivers: true}) // rename old option
+    // bad("-clip"); // no longer doing validation in option parsing
   })
 
   describe('lines', function () {
@@ -161,15 +183,17 @@ describe('mapshaper-options.js', function () {
 
   describe('dissolve', function() {
     good("-dissolve", {});
-    good("-dissolve STATE", {field: 'STATE'});
-    good("-dissolve FIPS sum-fields POP copy-fields NAME,FIPS", {field: "FIPS", copy_fields: ["NAME", "FIPS"], sum_fields: ["POP"]});
+    good("-dissolve STATE", {fields: ['STATE']});
+    good("-dissolve STATE,REGION", {fields: ['STATE', 'REGION']});
+    good("-dissolve name=foo", {name: "foo"});
+    good("-dissolve FIPS sum-fields POP copy-fields NAME,FIPS", {fields: ["FIPS"], copy_fields: ["NAME", "FIPS"], sum_fields: ["POP"]});
     bad("-dissolve STATE COUNTY");
     bad("-dissolve name -o"); // expects name=<lyr name>
   })
 
   describe('split', function () {
     good("-split", {});
-    good("-split STATE", {field: 'STATE'});
+    good("-split STATE", {expression: 'STATE'});
     bad("-split STATE COUNTY");
   })
 
@@ -195,21 +219,49 @@ describe('mapshaper-options.js', function () {
 
   describe('proj', function() {
     good("-proj +proj=merc +ellps=sphere", {
-      projection: '+proj=merc +ellps=sphere'
+      crs: '+proj=merc +ellps=sphere'
     });
 
     good("-proj albersusa densify", {
-      projection: 'albersusa',
+      crs: 'albersusa',
+      densify: true
+    });
+
+    good("-proj crs='+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'", {
+      crs: '+proj=longlat +ellps=WGS84 +datum=WGS84 +no_defs'
+    });
+
+    // projection= is alias for crs=, for backwards compatibility
+    good("-proj projection=albersusa densify", {
+      crs: 'albersusa',
       densify: true
     });
 
     bad("-proj");
-    bad("-proj merc +ellps=sphere")
+    // bad("-proj merc +ellps=sphere") // this kind of error is now caught elsequere
   })
 
   describe('syntax rules', function () {
-    good("--help", {}); // all commands accept -- prefix
-    bad("-dummy") // unknown command
+    // all commands accept alternative -- prefix
+    good("--help", {});
+
+    // -<command>=<value> syntax throws an error
+    bad('-target=layer1');
+
+  })
+
+
+  describe('Undefined command (gets parsed as tokens)', function() {
+
+    it('no arguments: empty token array', function() {
+      var parsed = internal.parseCommands('-dummy');
+      assert.deepEqual(parsed, [{name: 'dummy', _: [], options: {}}])
+    });
+
+    it ('arguments are imported as tokens', function() {
+      var parsed = internal.parseCommands('-dummy a   b=c  d=e,f ');
+      assert.deepEqual(parsed, [{name: 'dummy', _: ['a', 'b=c', 'd=e,f'], options: {}}])
+    });
   })
 
 })
@@ -217,14 +269,14 @@ describe('mapshaper-options.js', function () {
 function bad(str) {
   it(str, function() {
     assert.throws(function() {
-      api.internal.parseCommands(str);
+      internal.parseCommands(str);
     });
   })
 }
 
 function good(str, reference) {
   it(str, function() {
-    var parsed = api.internal.parseCommands(str);
+    var parsed = internal.parseCommands(str);
     var target = parsed[0].options;
     assert.deepEqual(target, reference);
   })

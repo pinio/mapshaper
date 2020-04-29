@@ -1,8 +1,7 @@
 var api = require('../'),
   assert = require('assert'),
   Utils = api.utils,
-  DataTable = api.internal.DataTable,
-  ShapefileTable = api.internal.ShapefileTable;
+  DataTable = api.internal.DataTable;
 
 describe('data-table.js', function () {
 
@@ -91,6 +90,17 @@ describe('data-table.js', function () {
       })
     })
 
+    describe('#clone()', function () {
+      it('deep-copies object records', function () {
+        var arr = [{a: {foo: 'bar'}}];
+        var table = new DataTable(arr);
+        var table2 = table.clone();
+        table2.getRecords()[0].a.foo = 'baz';
+        assert.deepEqual(table.getRecords(), [{a: {foo: 'bar'}}]);
+        assert.deepEqual(table2.getRecords(), [{a: {foo: 'baz'}}]);
+      })
+    })
+
     describe('#update()', function () {
       it('rename a field', function () {
         var table = new DataTable([{'foo': 'goat', 'bar': 22}, {'foo': 'cat', 'bar': 0}]);
@@ -116,7 +126,7 @@ describe('data-table.js', function () {
     })
   })
 
-  describe('ShapefileTable', function() {
+  describe('importDbfTable()', function() {
     function readDBF(relpath) {
       var path = require('path').join(__dirname, relpath);
       return api.cli.readFile(path);
@@ -138,7 +148,7 @@ describe('data-table.js', function () {
             LONG: -120.00
           }];
 
-        var table = new ShapefileTable(readDBF("test_data/two_states.dbf"));
+        var table = api.internal.importDbfTable(readDBF("data/two_states.dbf"));
         assert.deepEqual(JSON.stringify(table.getRecords()),
             JSON.stringify(records));
       })
@@ -146,7 +156,7 @@ describe('data-table.js', function () {
 
     describe('#fieldExists()', function() {
       it ('identifies existing fields', function() {
-        var table = new ShapefileTable(readDBF("test_data/two_states.dbf"));
+        var table = api.internal.importDbfTable(readDBF("data/two_states.dbf"));
         assert.ok(table.fieldExists('LAT'))
         assert.ok(table.fieldExists('STATE_NAME'))
       })

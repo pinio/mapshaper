@@ -1,10 +1,46 @@
-/* @requires
-mapshaper-geom,
-mapshaper-shape-geom,
-mapshaper-snapping,
-mapshaper-shape-utils,
-mapshaper-polygon-repair
-*/
+
+import { getDatasetCRS } from '../geom/mapshaper-projections';
+import { convertIntervalParam } from '../geom/mapshaper-units';
+import { snapCoords } from '../paths/mapshaper-snapping';
+import { layerHasPaths, divideFeaturesByType } from '../dataset/mapshaper-layer-utils';
+import { cleanShapes } from '../paths/mapshaper-path-repair-utils';
+import { getRoundingFunction } from '../geom/mapshaper-rounding';
+import { verbose, stop, message } from '../utils/mapshaper-logging';
+import { DataTable } from '../datatable/mapshaper-data-table';
+import { fixInconsistentFields } from '../datatable/mapshaper-data-utils';
+import { ArcCollection } from '../paths/mapshaper-arcs';
+import utils from '../utils/mapshaper-utils';
+import geom from '../geom/mapshaper-geom';
+
+// Apply snapping, remove duplicate coords and clean up defective paths in a dataset
+// Assumes that any CRS info has been added to the dataset
+// @opts: import options
+export function cleanPathsAfterImport(dataset, opts) {
+  var arcs = dataset.arcs;
+  var snapDist;
+  if (opts.snap || opts.auto_snap || opts.snap_interval) { // auto_snap is older name
+    if (opts.snap_interval) {
+      snapDist = convertIntervalParam(opts.snap_interval, getDatasetCRS(dataset));
+    }
+    if (arcs) {
+      snapCoords(arcs, snapDist);
+    }
+  }
+  dataset.layers.forEach(function(lyr) {
+    if (layerHasPaths(lyr)) {
+      cleanShapes(lyr.shapes, arcs, lyr.geometry_type);
+    }
+  });
+}
+
+export function pointHasValidCoords(p) {
+  // The Shapefile spec states that "measures" less then -1e38 indicate null values
+  // This should not apply to coordinate data, but in-the-wild Shapefiles have been
+  // seen with large negative values indicating null coordinates.
+  // This test catches these and also NaNs, but does not detect other kinds of
+  // invalid coords
+  return p[0] > -1e38 && p[1] > -1e38;
+}
 
 // Accumulates points in buffers until #endPath() is called
 // @drain callback: function(xarr, yarr, size) {}
@@ -36,7 +72,7 @@ function PathImportStream(drain) {
 // in preparation for identifying topology.
 // @opts.reserved_points -- estimate of points in dataset, for pre-allocating buffers
 //
-function PathImporter(opts) {
+export function PathImporter(opts) {
   var bufSize = opts.reserved_points > 0 ? opts.reserved_points : 20000,
       xx = new Float64Array(bufSize),
       yy = new Float64Array(bufSize),
@@ -65,12 +101,17 @@ function PathImporter(opts) {
   };
 
   this.importLine = function(points) {
+    if (points.length < 2) {
+      verbose("Skipping a defective line");
+      return;
+    }
     setShapeType('polyline');
     this.importPath(points);
   };
 
   this.importPoints = function(points) {
     setShapeType('point');
+    points = points.filter(pointHasValidCoords);
     if (round) {
       points.forEach(function(p) {
         p[0] = round(p[0]);
@@ -82,6 +123,10 @@ function PathImporter(opts) {
 
   this.importRing = function(points, isHole) {
     var area = geom.getPlanarPathArea2(points);
+    if (!area || points.length < 4) {
+      verbose("Skipping a defective ring");
+      return;
+    }
     setShapeType('polygon');
     if (isHole === true && area > 0 || isHole === false && area < 0) {
       verbose("Warning: reversing", isHole ? "a CW hole" : "a CCW ring");
@@ -108,6 +153,7 @@ function PathImporter(opts) {
     var arcs;
     var layers;
     var lyr = {name: ''};
+    var snapDist;
 
     if (dupeCount > 0) {
       verbose(utils.format("Removed %,d duplicate point%s", dupeCount, utils.pluralSuffix(dupeCount)));
@@ -122,13 +168,13 @@ function PathImporter(opts) {
       }
       arcs = new ArcCollection(nn, xx, yy);
 
-      if (opts.auto_snap || opts.snap_interval) {
-        MapShaper.snapCoords(arcs, opts.snap_interval);
-      }
+      //if (opts.snap || opts.auto_snap || opts.snap_interval) { // auto_snap is older name
+      //  internal.snapCoords(arcs, opts.snap_interval);
+      //}
     }
 
     if (collectionType == 'mixed') {
-      layers = MapShaper.divideFeaturesByType(shapes, properties, types);
+      layers = divideFeaturesByType(shapes, properties, types);
 
     } else {
       lyr = {geometry_type: collectionType};
@@ -142,11 +188,11 @@ function PathImporter(opts) {
     }
 
     layers.forEach(function(lyr) {
-      if (MapShaper.layerHasPaths(lyr)) {
-        MapShaper.cleanShapes(lyr.shapes, arcs, lyr.geometry_type);
-      }
+      //if (internal.layerHasPaths(lyr)) {
+        //internal.cleanShapes(lyr.shapes, arcs, lyr.geometry_type);
+      //}
       if (lyr.data) {
-        MapShaper.fixInconsistentFields(lyr.data.getRecords());
+        fixInconsistentFields(lyr.data.getRecords());
       }
     });
 

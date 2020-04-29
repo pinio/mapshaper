@@ -1,8 +1,7 @@
-/* @requires
-mapshaper-common
-*/
 
 var GeoJSON = {};
+export default GeoJSON;
+
 GeoJSON.ID_FIELD = "FID"; // default field name of imported *JSON feature ids
 
 GeoJSON.typeLookup = {
@@ -16,4 +15,11 @@ GeoJSON.typeLookup = {
 
 GeoJSON.translateGeoJSONType = function(type) {
   return GeoJSON.typeLookup[type] || null;
+};
+
+GeoJSON.pathIsRing = function(coords) {
+  var first = coords[0],
+      last = coords[coords.length - 1];
+  // TODO: consider detecting collapsed rings
+  return coords.length >= 4 && first[0] == last[0] && first[1] == last[1];
 };

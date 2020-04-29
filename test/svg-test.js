@@ -4,6 +4,75 @@ var api = require('../'),
 
 describe('mapshaper-svg.js', function () {
 
+  describe('exportDatasetForSVG()', function () {
+    it('export label properties', function () {
+      var lyr = {
+        name: 'labels',
+        geometry_type: 'point',
+        shapes: [[[0, 0]], [[1, 1]]],
+        data: new api.internal.DataTable([{
+          dx: 5,
+          dy: -6,
+          'label-text': 'TEXAS',
+          'font-size': '13',
+          'text-anchor': 'start'
+        }, {
+          dx: -5,
+          dy: -6,
+          'label-text': 'OKLA.',
+          'font-size': '13',
+          'text-anchor': 'end'
+       }])
+      };
+      var dataset = {
+        layers: [lyr],
+        info: {}
+      };
+
+      var target= {
+        tag: 'g',
+        properties: {
+          id: 'labels',
+          'font-family': 'sans-serif',
+          'font-size': '12',
+          'text-anchor': 'middle'
+        },
+        children: [{
+          tag: 'text',
+          value: 'TEXAS',
+          properties: {
+            //x: 0,
+            //y: 0,
+            //dx: 5,
+            //dy: -6,
+            transform: 'translate(0 0)',
+            x: 5,
+            y: -6,
+            'font-size': '13',
+            'text-anchor': 'start'
+          }
+        }, {
+          tag: 'text',
+          value: 'OKLA.',
+          properties: {
+            // x: 1,
+            // y: 1,
+            // dx: -5,
+            // dy: -6,
+            transform: 'translate(1 1)',
+            x: -5,
+            y: -6,
+            'font-size': '13',
+            'text-anchor': 'end'
+          }
+        }]
+      };
+
+      var output = api.internal.exportLayerForSVG(lyr, dataset, {});
+      assert.deepEqual(output, target);
+    });
+  })
+
   it ('default scaling w/ 1px margin, single point', function(done) {
     var geo = {
       type: 'Feature',
@@ -26,13 +95,28 @@ describe('mapshaper-svg.js', function () {
   });
 
   it('outputs svg file if output filename ends in ".svg"', function(done) {
-    api.applyCommands('-i test/test_data/two_states.shp -o two_states.svg', {}, function(err, output) {
+    api.applyCommands('-i test/data/two_states.shp -o two_states.svg', {}, function(err, output) {
       assert(/^<\?xml version="1.0"\?>/.test(output['two_states.svg']));
       done();
     });
   });
 
-
+  it ('multipolygon exported as single path', function(done) {
+    var geo = {
+      type: 'Feature',
+      properties: null,
+      geometry: {
+        type: 'MultiPolygon',
+        coordinates: [[[[1, 1], [1, 2], [2, 2], [2, 1], [1, 1]]],
+          [[[3, 2], [4, 2], [4, 1], [3, 1], [3, 2]]]]
+      }
+    };
+    var target = '<?xml version="1.0"?>\n<svg xmlns="http://www.w3.org/2000/svg" version="1.2" baseProfile="tiny" width="900" height="300" viewBox="0 0 900 300" stroke-linecap="round" stroke-linejoin="round">\n<g id="path">\n<path d="M 0 300 0 0 300 0 300 300 0 300 Z M 600 0 900 0 900 300 600 300 600 0 Z"/>\n</g>\n</svg>';
+    api.applyCommands('-i path.json -o path.svg margin=0 width=900', {'path.json': geo}, function(err, output) {
+      assert.equal(output['path.svg'], target);
+      done();
+    });
+  })
 
   it ('default scaling w/ 1px margin, polyline', function(done) {
     var geo = {

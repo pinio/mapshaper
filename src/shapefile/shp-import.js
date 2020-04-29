@@ -1,23 +1,24 @@
-/* @requires
-shp-common
-shp-reader
-dbf-reader
-mapshaper-path-import
-*/
+import { isSupportedShapefileType } from '../shapefile/shp-common';
+import { translateShapefileType } from '../shapefile/shp-common';
+import { stop, message } from '../utils/mapshaper-logging';
+import ShpType from '../shapefile/shp-type';
+import { ShpReader } from '../shapefile/shp-reader';
+import { PathImporter } from '../paths/mapshaper-path-import';
+import utils from '../utils/mapshaper-utils';
 
 // Read Shapefile data from a file, ArrayBuffer or Buffer
-// @src filename or buffer
-MapShaper.importShp = function(src, opts) {
-  var reader = new ShpReader(src),
+// @shp, @shx: filename or buffer
+export function importShp(shp, shx, opts) {
+  var reader = new ShpReader(shp, shx),
       shpType = reader.type(),
-      type = MapShaper.translateShapefileType(shpType),
+      type = translateShapefileType(shpType),
       importOpts = utils.defaults({
         type: type,
         reserved_points: Math.round(reader.header().byteLength / 16)
       }, opts),
       importer = new PathImporter(importOpts);
 
-  if (!MapShaper.isSupportedShapefileType(shpType)) {
+  if (!isSupportedShapefileType(shpType)) {
     stop("Unsupported Shapefile type:", shpType);
   }
   if (ShpType.isZType(shpType)) {
@@ -35,8 +36,9 @@ MapShaper.importShp = function(src, opts) {
       importer.importPoints(shp.readPoints());
     } else {
       shp.stream(importer);
+      // shp.stream2(importer);
     }
   });
 
   return importer.done();
-};
+}

@@ -1,11 +1,19 @@
-/* @require mapshaper-common */
+import cmd from '../mapshaper-cmd';
+import { stop } from '../utils/mapshaper-logging';
 
-api.target = function(catalog, pattern) {
-  var targets = catalog.findCommandTargets(pattern);
-  if (targets.length === 0) {
-    stop("[target] Target not found (" + pattern + ")");
-  } else if (targets.length > 1 || targets[0].layers.length > 1) {
-    stop("[target] Matched more than one layer");
+cmd.target = function(catalog, opts) {
+  var type = (opts.type || '').toLowerCase().replace('linestring', 'polyline');
+  var pattern = opts.target || '*';
+  var targets = catalog.findCommandTargets(pattern, type);
+  if (type && 'polygon,polyline,point'.split(',').indexOf(type) == -1) {
+    stop("Invalid layer type:", opts.type);
   }
-  catalog.setDefaultTarget(targets[0].layers, targets[0].dataset);
+  if (targets.length === 0) {
+    stop("No layers were matched (pattern: " + pattern + (type ? ' type: ' + type : '') + ")");
+  }
+  if (opts.name || opts.name === '') {
+    // TODO: improve this
+    targets[0].layers[0].name = opts.name;
+  }
+  catalog.setDefaultTargets(targets);
 };

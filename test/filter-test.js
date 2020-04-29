@@ -3,7 +3,8 @@ var assert = require('assert'),
     internal = api.internal;
 
 describe('mapshaper-filter.js', function () {
-  describe('Command line tests', function() {
+
+  describe('Command line options', function() {
     var geojson = {
       type:"FeatureCollection",
       features: [{
@@ -23,7 +24,7 @@ describe('mapshaper-filter.js', function () {
 
     it ('empty expression throws an error', function(done) {
       api.applyCommands('-filter ""', JSON.stringify(geojson), function(err) {
-        assert.equal(err.name, 'APIError');
+        assert.equal(err.name, 'UserError');
         done();
       });
     })
@@ -47,7 +48,6 @@ describe('mapshaper-filter.js', function () {
       // filter a layer with no-replace; check that modifying data in the filtered layer does not change the source layer.
       api.applyCommands('-filter \'name == "b"\' + name=filtered -each target=filtered \'name="foo"\'', geojson, function(err, data) {
         if (err) console.log(err);
-        assert.equal(typeof data, 'string');
         var output = JSON.parse(data);
         assert.deepEqual(output.features[0].properties, {name: 'foo'})
         assert.equal(output.features.length, 1);
@@ -64,6 +64,15 @@ describe('mapshaper-filter.js', function () {
       });
     })
 
+    it ('-filter remove-empty with invert option', function(done) {
+      api.applyCommands('-filter invert remove-empty', geojson, function(err, json) {
+        var output = JSON.parse(json);
+        assert.equal(output.features.length, 1);
+        assert.deepEqual(output.features[0], geojson.features[1])
+        done();
+      });
+    })
+
     it ('-filter (combined options)', function(done) {
       api.applyCommands('-filter remove-empty "name != \'a\'"', geojson, function(err, json) {
         var output = JSON.parse(json);
@@ -72,7 +81,59 @@ describe('mapshaper-filter.js', function () {
         done();
       });
     })
+
+    it ('-filter bbox= option with points', function(done) {
+      var points = {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'Point',
+          coordinates: [0, 0]
+        }, {
+          type: 'Point',
+          coordinates: [2, 2]
+        }, {
+          type: 'MultiPoint',
+          coordinates: [[2, 2], [0, 0]]
+        }]
+      };
+      api.applyCommands('-i points.json -filter bbox=1,1,3,3 -o', {'points.json': points}, function(err, out) {
+        var output = JSON.parse(out['points.json'])
+        assert.deepEqual(output.geometries, [{
+            type: 'Point',
+            coordinates: [2, 2]
+          }, {
+            type: 'MultiPoint',
+            coordinates: [[2, 2], [0, 0]] // entire feature is retained, including point outside bbox
+          }]);
+        done();
+      });
+    })
+
+    it ('-filter expression and bbox= option with points', function(done) {
+      var points = {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'Point',
+          coordinates: [0, 0]
+        }, {
+          type: 'Point',
+          coordinates: [2, 2]
+        }, {
+          type: 'MultiPoint',
+          coordinates: [[2, 2], [0, 0]]
+        }]
+      };
+      api.applyCommands('-i points.json -filter "this.id != 2" bbox=1,1,3,3 -o', {'points.json': points}, function(err, out) {
+        var output = JSON.parse(out['points.json'])
+        assert.deepEqual(output.geometries, [{
+            type: 'Point',
+            coordinates: [2, 2]
+          }]);
+        done();
+      });
+    })
   })
+
 
   describe('filter()', function () {
     var nullArcs = new api.internal.ArcCollection([]);

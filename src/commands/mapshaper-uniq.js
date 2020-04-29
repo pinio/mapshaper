@@ -1,33 +1,40 @@
-/* @requires
-mapshaper-expressions
-mapshaper-dataset-utils
-*/
+import { compileValueExpression } from '../expressions/mapshaper-expressions';
+import { getFeatureCount } from '../dataset/mapshaper-layer-utils';
+import { message } from '../utils/mapshaper-logging';
+import utils from '../utils/mapshaper-utils';
+import cmd from '../mapshaper-cmd';
+import { DataTable } from '../datatable/mapshaper-data-table';
 
-api.uniq = function(lyr, arcs, opts) {
-  var n = MapShaper.getFeatureCount(lyr),
-      compiled = MapShaper.compileValueExpression(opts.expression, lyr, arcs),
-      index = {},
-      flags = [],
+cmd.uniq = function(lyr, arcs, opts) {
+  var n = getFeatureCount(lyr),
+      compiled = compileValueExpression(opts.expression, lyr, arcs),
+      maxCount = opts.max_count || 1,
+      counts = {},
+      keepFlags = [],
       verbose = !!opts.verbose,
+      invert = !!opts.invert,
       records = lyr.data ? lyr.data.getRecords() : null,
-      f = function(d, i) {return !flags[i];};
+      filter = function(d, i) {return keepFlags[i];};
 
   utils.repeat(n, function(i) {
     var val = compiled(i);
-    flags[i] = val in index;
-    if (verbose && index[val]) {
-      message(utils.format('[uniq] Removing feature %i key: [%s]', i, val));
+    var count = val in counts ? counts[val] + 1 : 1;
+    var keep = count <= maxCount;
+    if (invert) keep = !keep;
+    keepFlags[i] = keep;
+    counts[val] = count;
+    if (verbose && !keep) {
+      message(utils.format('Removing feature %i key: [%s]', i, val));
     }
-    index[val] = true;
   });
 
   if (lyr.shapes) {
-    lyr.shapes = lyr.shapes.filter(f);
+    lyr.shapes = lyr.shapes.filter(filter);
   }
   if (records) {
-    lyr.data = new DataTable(records.filter(f));
+    lyr.data = new DataTable(records.filter(filter));
   }
   if (opts.verbose !== false) {
-    message(utils.format('[uniq] Retained %,d of %,d features', MapShaper.getFeatureCount(lyr), n));
+    message(utils.format('Retained %,d of %,d features', getFeatureCount(lyr), n));
   }
 };

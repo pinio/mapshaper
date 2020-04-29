@@ -1,24 +1,25 @@
-/* @requires
-mapshaper-geojson
-mapshaper-projections
-mapshaper-merging
-*/
+import { importGeoJSON } from '../geojson/geojson-import';
+import { projectDataset } from '../commands/mapshaper-proj';
+import { getDatasetCRS, getCRS } from '../geom/mapshaper-projections';
+import { stop } from '../utils/mapshaper-logging';
+import utils from '../utils/mapshaper-utils';
+import cmd from '../mapshaper-cmd';
 
-api.graticule = function(dataset, opts) {
-  var graticule = MapShaper.createGraticule(opts);
+cmd.graticule = function(dataset, opts) {
+  var graticule = createGraticule(opts);
   var dest, src;
   if (dataset) {
     // project graticule to match dataset
-    dest = MapShaper.getDatasetProjection(dataset);
-    src = MapShaper.getProjection('wgs84');
-    if (!dest) stop("[graticule] Coordinate system is unknown, unable to create a graticule");
-    MapShaper.projectDataset(graticule, src, dest, {}); // TODO: densify?
+    dest = getDatasetCRS(dataset);
+    src = getCRS('wgs84');
+    if (!dest) stop("Coordinate system is unknown, unable to create a graticule");
+    projectDataset(graticule, src, dest, {}); // TODO: densify?
   }
   return graticule;
 };
 
 // create graticule as a dataset
-MapShaper.createGraticule = function(opts) {
+function createGraticule(opts) {
   var precision = 1; // degrees between each vertex
   var step = 10;
   var majorStep = 90;
@@ -33,21 +34,21 @@ MapShaper.createGraticule = function(opts) {
       ymin += step;
       ymax -= step;
     }
-    return MapShaper.createMeridian(x, ymin, ymax, precision);
+    return createMeridian(x, ymin, ymax, precision);
   });
   var parallels = yy.map(function(y) {
-    return MapShaper.createParallel(y, -180, 180, precision);
+    return createParallel(y, -180, 180, precision);
   });
   var geojson = {
     type: 'FeatureCollection',
     features: meridians.concat(parallels)
   };
-  var graticule = MapShaper.importGeoJSON(geojson, {});
+  var graticule = importGeoJSON(geojson, {});
   graticule.layers[0].name = 'graticule';
   return graticule;
-};
+}
 
-MapShaper.graticuleFeature = function(coords, o) {
+function graticuleFeature(coords, o) {
   return {
     type: 'Feature',
     properties: o,
@@ -56,22 +57,22 @@ MapShaper.graticuleFeature = function(coords, o) {
       coordinates: coords
     }
   };
-};
+}
 
-MapShaper.createMeridian = function(x, ymin, ymax, precision) {
+function createMeridian(x, ymin, ymax, precision) {
   var coords = [];
   for (var y = ymin; y < ymax; y += precision) {
     coords.push([x, y]);
   }
   coords.push([x, ymax]);
-  return MapShaper.graticuleFeature(coords, {type: 'meridian', value: x});
-};
+  return graticuleFeature(coords, {type: 'meridian', value: x});
+}
 
-MapShaper.createParallel = function(y, xmin, xmax, precision) {
+function createParallel(y, xmin, xmax, precision) {
   var coords = [];
   for (var x = xmin; x < xmax; x += precision) {
     coords.push([x, y]);
   }
   coords.push([xmax, y]);
-  return MapShaper.graticuleFeature(coords, {type: 'parallel', value: y});
-};
+  return graticuleFeature(coords, {type: 'parallel', value: y});
+}

@@ -1,6 +1,8 @@
-/* @requires mapshaper-shape-utils */
+import { traversePaths } from '../paths/mapshaper-path-utils';
+import { error } from '../utils/mapshaper-logging';
+import utils from '../utils/mapshaper-utils';
 
-function dissolvePolygonGeometry(shapes, getGroupId) {
+export function dissolvePolygonGeometry(shapes, getGroupId) {
   var segments = dissolveFirstPass(shapes, getGroupId);
   return dissolveSecondPass(segments, shapes, getGroupId);
 }
@@ -14,7 +16,7 @@ function dissolveFirstPass(shapes, getGroupId) {
         return getGroupId(i);
       });
 
-  MapShaper.traversePaths(shapes, procArc);
+  traversePaths(shapes, procArc);
   largeGroups.forEach(splitGroup);
   return segments;
 
@@ -159,7 +161,7 @@ function dissolveSecondPass(segments, shapes, getGroupId) {
       match = findDissolveArc(next);
       if (match) {
         if (depth > 100) {
-          error ('[dissolve] deep recursion -- unhandled topology problem');
+          error ('deep recursion -- unhandled topology problem');
         }
         // if (match.part.arcs.length == 1) {
         if (shapes[match.shapeId][match.partId].length == 1) {

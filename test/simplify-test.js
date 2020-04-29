@@ -4,10 +4,112 @@ var assert = require('assert'),
 
 describe("mapshaper-simplify.js", function() {
 
+  describe('Change: -simplify ignores targets with no paths instead of erroring', function () {
+    it('-simplify 10%', function (done) {
+      var input = {
+        type: 'Feature',
+        geometry: null,
+        properties: {id: 'foo'}
+      };
+      api.applyCommands('-i in.json -simplify 10% -o out.json', {'in.json': input}, function(err, output) {
+        var json = JSON.parse(output['out.json']);
+        assert(!err)
+        assert.deepEqual(json.features, [input]);
+        done();
+      })
+    })
+  });
+
+
+  describe('convertSimplifyInterval', function () {
+    it('wgs84 / km', function () {
+      var input = {
+        type: 'LineString',
+        coordinates: [[-100, 40], [-101, 42], [-105, 47]]
+      }
+      var dataset = api.internal.importGeoJSON(input, {});
+      var interval = api.internal.convertSimplifyInterval('0.5km', dataset, {});
+      assert.equal(interval, 500)
+    })
+
+    it('Error: wgs84 / km / planar', function() {
+      assert.throws(function() {
+        var input = {
+          type: 'LineString',
+          coordinates: [[-100, 40], [-101, 42], [-105, 47]]
+        }
+        var dataset = api.internal.importGeoJSON(input, {});
+        var interval = api.internal.convertSimplifyInterval('0.5km', dataset, {planar: true});
+      });
+    })
+
+    it('wgs84 / [no units] / planer', function() {
+      var input = {
+        type: 'LineString',
+        coordinates: [[-100, 40], [-101, 42], [-105, 47]]
+      }
+      var dataset = api.internal.importGeoJSON(input, {});
+      var interval = api.internal.convertSimplifyInterval(3, dataset, {planar: true});
+      assert.equal(interval, 3)
+    })
+  })
+
+  describe('-simplify target= option', function () {
+    // TODO: change this behavior
+    it('targeting one layer in a dataset simplifies all layers in the dataset', function (done) {
+      var a = {
+        type: 'LineString',
+        coordinates: [[0, 0], [0, 1], [1, 1]]
+      };
+      var b = {
+        type: 'LineString',
+        coordinates: [[2, 0], [2, 1], [3, 1]]
+      }
+      var cmd = '-i a.json b.json combine-files -simplify target=a 5% -o target=*';
+      api.applyCommands(cmd, {'a.json': a, 'b.json': b}, function(err, out) {
+        var a = JSON.parse(out['a.json']);
+        var b = JSON.parse(out['b.json']);
+        assert.deepEqual(a.geometries[0].coordinates, [[0, 0], [1, 1]]);
+        assert.deepEqual(b.geometries[0].coordinates, [[2, 0], [3, 1]]);
+        done();
+      });
+    })
+  })
+
+
+  describe('-simplify resolution= option', function () {
+
+    it('resolution=100x100', function (done) {
+      var input = {
+        type: 'LineString',
+        coordinates: [[0, 0], [0, 1], [1, 1], [1, 2]]
+      }
+      api.applyCommands('-i line.json -simplify resolution=100x100 -o', {'line.json': input}, function(err, out) {
+        var output = JSON.parse(out['line.json']);
+        assert.deepEqual(output.geometries[0], input);
+        done();
+      })
+    })
+  })
+
+  describe('Fix: -simplify 0% removes all removable vertices', function () {
+    it('-simplify planar 0%', function (done) {
+      var input = {
+        type: 'LineString',
+        coordinates: [[0,0], [0,1], [0.1, 1.1], [0, 1.2], [0, 2]]
+      };
+      api.applyCommands('-i in.json -simplify planar 0% -o out.json', {'in.json': input}, function(err, output) {
+        var json = JSON.parse(output['out.json']);
+        assert.deepEqual(json.geometries[0].coordinates, [[0,0], [0, 2]]);
+        done();
+      })
+    })
+  })
+
   describe('simplify() can be re-applied', function () {
 
     it('test 1', function(done) {
-      api.internal.testCommands('-i test/test_data/ne/ne_110m_admin_1_states_provinces_shp.shp', function(err, dataset) {
+      api.internal.testCommands('-i test/data/ne/ne_110m_admin_1_states_provinces_shp.shp', function(err, dataset) {
         var a = dataset.arcs.toArray();
         api.simplify(dataset, {percentage: 0.1, method: 'dp'});
         var b = dataset.arcs.toArray();
@@ -35,26 +137,26 @@ describe("mapshaper-simplify.js", function() {
 
   })
 
-  describe('simplify() creates database.info.simplify object', function () {
+  describe('simplify() creates dataset.info.simplify object', function () {
     it('default method, auto-detect spherical', function () {
       var arcs = new api.internal.ArcCollection([[[180, 90], [-180, -90]]]);
       var dataset = {arcs: arcs};
-      api.simplify(dataset);
-      assert.deepEqual(dataset.info.simplify, {method: 'weighted_visvalingam', spherical: true});
+      api.simplify(dataset, {percentage: 1});
+      assert.deepEqual(dataset.info.simplify, {method: 'weighted_visvalingam', spherical: true, percentage: 1});
     })
 
     it('Douglas-Peucker, auto-detect planar', function () {
       var arcs = new api.internal.ArcCollection([[[0, 100], [100, 100]]]);
       var dataset = {arcs: arcs};
-      api.simplify(dataset, {method: 'dp'});
-      assert.deepEqual(dataset.info.simplify, {method: 'dp', spherical: false});
+      api.simplify(dataset, {method: 'dp', percentage: 0.5});
+      assert.deepEqual(dataset.info.simplify, {method: 'dp', spherical: false, percentage: 0.5});
     })
 
     it('unweighted Visvalingam, explicit planar', function () {
       var arcs = new api.internal.ArcCollection([[[0, 0], [1, -1]]]);
       var dataset = {arcs: arcs};
-      api.simplify(dataset, {method: 'visvalingam', planar: true});
-      assert.deepEqual(dataset.info.simplify, {method: 'visvalingam', spherical: false, planar: true});
+      api.simplify(dataset, {method: 'visvalingam', planar: true, percentage: 0});
+      assert.deepEqual(dataset.info.simplify, {method: 'visvalingam', spherical: false, planar: true, percentage: 0});
     })
   })
 
@@ -107,6 +209,12 @@ describe("mapshaper-simplify.js", function() {
   describe('parseSimplifyResolution()', function () {
     it('parse grid', function () {
       assert.deepEqual(api.internal.parseSimplifyResolution('100x200'), [100, 200]);
+    })
+    it('parse grid (comma delim)', function () {
+      assert.deepEqual(api.internal.parseSimplifyResolution('100,200'), [100, 200]);
+    })
+    it('parse grid (space delim)', function () {
+      assert.deepEqual(api.internal.parseSimplifyResolution('100 200'), [100, 200]);
     })
     it('parse partial grid', function () {
       assert.deepEqual(api.internal.parseSimplifyResolution('x200'), [0, 200]);

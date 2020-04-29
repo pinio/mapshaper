@@ -1,14 +1,25 @@
-/* @requires mapshaper-shape-utils */
+import utils from '../utils/mapshaper-utils';
+import { traversePaths } from '../paths/mapshaper-path-utils';
+import { absArcId } from '../paths/mapshaper-arc-utils';
 
-MapShaper.getArcClassifier = function(shapes, arcs) {
-  var n = arcs.size(),
+// Returns a function for constructing a query function that accepts an arc id and
+// returns information about the polygon or polygons that use the given arc.
+// TODO: explain this better.
+//
+// options:
+//   filter: optional filter function; signature: function(idA, idB or -1) : boolean
+//   reusable: flag that lets an arc be queried multiple times.
+export function getArcClassifier(shapes, arcs) {
+  var opts = arguments[2] || {},
+      useOnce = !opts.reusable,
+      n = arcs.size(),
       a = new Int32Array(n),
       b = new Int32Array(n);
 
   utils.initializeArray(a, -1);
   utils.initializeArray(b, -1);
 
-  MapShaper.traversePaths(shapes, function(o) {
+  traversePaths(shapes, function(o) {
     var i = absArcId(o.arcId);
     var shpId = o.shapeId;
     var aval = a[i];
@@ -24,14 +35,19 @@ MapShaper.getArcClassifier = function(shapes, arcs) {
 
   function classify(arcId, getKey) {
     var i = absArcId(arcId);
-    var key = null;
-    if (a[i] > -1) {
-      key = getKey(a[i], b[i]);
-      if (key) {
-        a[i] = -1;
-        b[i] = -1;
-      }
+    var shpA = a[i];
+    var shpB = b[i];
+    var key;
+    if (shpA == -1) return null;
+    key = getKey(shpA, shpB);
+    if (key === null || key === false) return null;
+    if (useOnce) {
+      // arc can only be queried once
+      a[i] = -1;
+      b[i] = -1;
     }
+    // use optional filter to exclude some arcs
+    if (opts.filter && !opts.filter(shpA, shpB)) return null;
     return key;
   }
 
@@ -40,4 +56,4 @@ MapShaper.getArcClassifier = function(shapes, arcs) {
       return classify(arcId, getKey);
     };
   };
-};
+}

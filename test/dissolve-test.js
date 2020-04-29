@@ -7,9 +7,138 @@ var assert = require('assert'),
 describe('mapshaper-dissolve.js', function () {
 
   describe('-dissolve command', function () {
+    it('multipart option with polylines', function(done) {
+      var input = {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'LineString',
+          coordinates: [[0, 0], [1, 1]]
+        }, {
+          type: 'LineString',
+          coordinates: [[1, 1], [2, 2]]
+        }, {
+          type: 'LineString',
+          coordinates: [[2, 2], [3, 3]]
+        }]
+      };
+      var expect = {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'MultiLineString',
+          coordinates: [[[0, 0], [1, 1]], [[1, 1], [2, 2]], [[2, 2], [3, 3]]]
+        }]
+      };
+      api.applyCommands('-i lines.json -dissolve multipart -o', {'lines.json': input}, function(err, out) {
+          var output = JSON.parse(out['lines.json']);
+          assert.deepEqual(output, expect);
+          done();
+        });
 
-    it('test 1', function(done) {
-      var cmd = "-i test/test_data/six_counties.shp -dissolve + copy-fields NAME,STATE_FIPS sum-fields POP2000,MULT_RACE";
+    });
+
+    it('dissolve CSV on three fields', function(done) {
+      var str = 'id1,id2,id3\na,1,x\na,1,x\na,2,x\nb,1,x\nb,2,x\nb,2,x\nc,2,x\na,1,y\na,1,y';
+      api.applyCommands('-i in.csv -dissolve id1,id2,id3 -o out.csv', {'in.csv': str}, function(err, out) {
+        var csv = out['out.csv'];
+        assert.equal(csv, 'id1,id2,id3\na,1,x\na,2,x\nb,1,x\nb,2,x\nc,2,x\na,1,y');
+        done();
+      })
+    });
+
+    it('polyline test 1 (multiple segments)', function(done) {
+      var a = {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          properties: {name: 'bar'},
+          geometry: {
+            type: 'LineString',
+            coordinates: [[1, 1], [0, 0]]
+          }
+        }, {
+          type: 'Feature',
+          properties: {name: 'foo'},
+          geometry: {
+            type: 'MultiLineString',
+            coordinates: [[[1, 1], [2, 2], [3, 3]], [[4, 4], [3, 3]]]
+          }
+        }]
+      };
+      var expect = {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'LineString',
+          coordinates: [[0, 0], [1, 1], [2, 2], [3, 3], [4, 4]]
+        }]
+      };
+      api.applyCommands('-i a.json -dissolve -o', {'a.json': a}, function(err, output) {
+        var geojson = JSON.parse(output['a.json']);
+        assert.deepEqual(geojson, expect)
+        done();
+      })
+    });
+
+    it('polyline test 2 (simple ring)', function(done) {
+      var a = {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          properties: {name: 'bar'},
+          geometry: {
+            type: 'LineString',
+            coordinates: [[1, 1], [1, 0], [0, 1], [1, 1]]
+          }
+        }]
+      };
+      var expect = {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'LineString',
+          coordinates: [[1, 1], [1, 0], [0, 1], [1, 1]]
+        }]
+      };
+      api.applyCommands('-i a.json -dissolve -o', {'a.json': a}, function(err, output) {
+        var geojson = JSON.parse(output['a.json']);
+        assert.deepEqual(geojson, expect)
+        done();
+      })
+    });
+
+    it('polyline test 3 (split ring)', function(done) {
+      var a = {
+        type: 'FeatureCollection',
+        features: [{
+          type: 'Feature',
+          properties: {name: 'foo'},
+          geometry: {
+            type: 'LineString',
+            coordinates: [[1, 1], [1, 0], [0, 0]]
+          }
+        }, {
+          type: 'Feature',
+          properties: {name: 'bar'},
+          geometry: {
+            type: 'LineString',
+            coordinates: [[0, 0], [0, 1], [1, 1]]
+          }
+        }]
+      };
+      var expect = {
+        type: 'GeometryCollection',
+        geometries: [{
+          type: 'LineString',
+          coordinates: [[1, 1], [1, 0], [0, 0], [0, 1], [1, 1]]
+        }]
+      };
+      api.applyCommands('-i a.json -dissolve -o', {'a.json': a}, function(err, output) {
+        var geojson = JSON.parse(output['a.json']);
+        assert.deepEqual(geojson, expect)
+        done();
+      })
+    });
+
+    it('polygon test 1', function(done) {
+      var cmd = "-i test/data/six_counties.shp -dissolve + copy-fields NAME,STATE_FIPS sum-fields POP2000,MULT_RACE";
         api.internal.testCommands(cmd, function(err, data) {
         assert.equal(data.layers.length, 2);
         var lyr1 = data.layers[0]; // original lyr
@@ -21,6 +150,66 @@ describe('mapshaper-dissolve.js', function () {
         done();
       })
     })
+
+    it('calc= option works', function(done) {
+      var input = [
+        {POP: 200, INCOME: 20000, GROUP: "A", NAME: "Apple"},
+        {POP: 400, INCOME: 15000, GROUP: "B", NAME: "Beet"},
+        {POP: 600, INCOME: 8000, GROUP: "A", NAME: "Ant"}];
+      var copy = JSON.parse(JSON.stringify(input));
+      var target = [
+        {INCOMES: [20000,8000], TOTPOP: 800, MAXPOP: 600, MINPOP: 200, n: 2, GROUP: "A", NAMES: ['Apple', 'Ant']},
+        {INCOMES: [15000], TOTPOP: 400, MAXPOP: 400, MINPOP: 400, n: 1, GROUP: "B", NAMES: ['Beet']}];
+
+      var calc = "INCOMES=collect(INCOME), TOTPOP=sum(POP), MAXPOP=max(POP), MINPOP=min(POP), n=count(), NAMES=collect(NAME)";
+      var cmd = '-i data.json -dissolve GROUP calc="' + calc + '" -o';
+      api.applyCommands(cmd, {'data.json': input}, function(err, output) {
+        assert.deepEqual(JSON.parse(output['data.json']), target);
+        assert.deepEqual(input, copy);
+        done();
+      });
+    });
+
+    it('calc= assigning to same var name does not modify original data', function(done) {
+      var input = [
+        {POP: 200, MAXINCOME: 20000, GROUP: "A", NAME: "Apple"},
+        {POP: 400, MAXINCOME: 15000, GROUP: "B", NAME: "Beet"},
+        {POP: 600, MAXINCOME: 8000, GROUP: "A", NAME: "Ant"}];
+      var copy = JSON.parse(JSON.stringify(input));
+      var target = [
+        {MAXINCOME: 20000, POP: 1200,  NAME: 'Apple'}];
+
+      var calc = "MAXINCOME=max(MAXINCOME), POP=sum(POP), NAME = first(NAME)";
+      var cmd = '-i data.json -dissolve calc="' + calc + '" -o';
+      api.applyCommands(cmd, {'data.json': input}, function(err, output) {
+        assert.deepEqual(JSON.parse(output['data.json']), target);
+        assert.deepEqual(input, copy);
+        done();
+      });
+    });
+
+    /*
+    // THIS NO LONGER WORKS -- in order to support assingment to same-named variables,
+    // First-pass collect() function could no longer return an array
+
+    it('calc= option: collect().join() works', function(done) {
+      var input = [
+        {POP: 200, NAME: "Apple"},
+        {POP: 400, NAME: "Beet"},
+        {POP: 600, NAME: "Ant"}];
+      var copy = JSON.parse(JSON.stringify(input));
+      var target = [
+        {POPS:"200,400,600", NAMES: "Apple,Beet,Ant"}];
+
+      var calc = "POPS=collect(POP).join(','), NAMES=collect(NAME).join(',')";
+      var cmd = '-i data.json -dissolve calc="' + calc + '" -o';
+      api.applyCommands(cmd, {'data.json': input}, function(err, output) {
+        assert.deepEqual(JSON.parse(output['data.json']), target);
+        assert.deepEqual(input, copy);
+        done();
+      });
+    });
+    */
 
   })
 

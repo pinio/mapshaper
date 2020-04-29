@@ -1,21 +1,57 @@
-/* @requires mapshaper-dataset-utils */
+import { getDatasetBounds } from '../dataset/mapshaper-dataset-utils';
+import { convertIntervalParam } from '../geom/mapshaper-units';
+import { getDatasetCRS } from '../geom/mapshaper-projections';
+import { stop } from '../utils/mapshaper-logging';
+import cmd from '../mapshaper-cmd';
 
-api.pointGrid = function(dataset, opts) {
-  var bbox, gridLyr;
-  if (opts.bbox) {
-    bbox = opts.bbox;
-  } else if (dataset) {
-    bbox = MapShaper.getDatasetBounds(dataset).toArray();
-  } else {
-    bbox = [-180, -90, 180, 90];
-  }
-  return MapShaper.createPointGrid(bbox, opts);
+cmd.pointGrid = function(dataset, opts) {
+  var gridOpts = getPointGridParams(dataset, opts);
+  return createPointGridLayer(createPointGrid(gridOpts), opts);
 };
 
-MapShaper.createPointGrid = function(bbox, opts) {
-  var w = bbox[2] - bbox[0],
+function getPointGridParams(dataset, opts) {
+  var params = {};
+  var crs = dataset ? getDatasetCRS(dataset) : null;
+  if (opts.interval) {
+    params.interval = convertIntervalParam(opts.interval, crs);
+  } else if (opts.rows > 0 && opts.cols > 0) {
+    params.rows = opts.rows;
+    params.cols = opts.cols;
+  } else {
+    // error, handled later
+  }
+  if (opts.bbox) {
+    params.bbox = opts.bbox;
+  } else if (dataset) {
+    params.bbox = getDatasetBounds(dataset).toArray();
+  } else {
+    params.bbox = [-180, -90, 180, 90];
+  }
+  return params;
+}
+
+function createPointGridLayer(rows, opts) {
+  var points = [], lyr;
+  rows.forEach(function(row, rowId) {
+    for (var i=0; i<row.length; i++) {
+      points.push([row[i]]);
+    }
+  });
+  lyr = {
+    geometry_type: 'point',
+    shapes: points
+  };
+  if (opts.name) lyr.name = opts.name;
+  return lyr;
+}
+
+
+// Returns a grid of [x,y] points so that point(c,r) == arr[r][c]
+function createPointGrid(opts) {
+  var bbox = opts.bbox,
+      w = bbox[2] - bbox[0],
       h = bbox[3] - bbox[1],
-      points = [],
+      rowsArr = [], rowArr,
       cols, rows, dx, dy, x0, y0, x, y;
 
   if (opts.interval > 0) {
@@ -35,20 +71,18 @@ MapShaper.createPointGrid = function(bbox, opts) {
   }
 
   if (dx > 0 === false || dy > 0 === false) {
-    stop('[point-grid] Invalid grid parameters');
+    stop('Invalid grid parameters');
   }
 
   y = y0;
   while (y <= bbox[3]) {
     x = x0;
+    rowsArr.push(rowArr = []);
     while (x <= bbox[2]) {
-      points.push([[x, y]]);
+      rowArr.push([x, y]);
       x += dx;
     }
     y += dy;
   }
-  return {
-    geometry_type: 'point',
-    shapes: points
-  };
-};
+  return rowsArr;
+}

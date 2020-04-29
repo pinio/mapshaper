@@ -1,17 +1,16 @@
-/* @requires mapshaper-common */
+import cmd from '../mapshaper-cmd';
 
-api.renameLayers = function(layers, names) {
+cmd.renameLayers = function(layers, names) {
   var nameCount = names && names.length || 0;
+  var name = '';
+  var suffix = '';
   layers.forEach(function(lyr, i) {
-    var name;
-    if (nameCount === 0) {
-      name = "layer" + (i + 1);
-    } else {
-      name = i < nameCount - 1 ? names[i] : names[nameCount - 1];
-      if (nameCount < layers.length && i >= nameCount - 2) {
-        name += i - nameCount + 2;
-      }
+    if (i < nameCount) {
+      name = names[i];
     }
-    lyr.name = name;
+    if (name && nameCount < layers.length && (i >= nameCount - 1)) {
+      suffix = (suffix || 0) + 1;
+    }
+    lyr.name = name + suffix;
   });
 };

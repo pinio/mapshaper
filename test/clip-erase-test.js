@@ -6,10 +6,10 @@ describe('mapshaper-clip-erase.js', function () {
 
   describe('getClipMessage()', function () {
     it('test', function () {
-      assert.equal(api.internal.getClipMessage('clip', 0, 1), '[clip] Removed 1 sliver');
-      assert.equal(api.internal.getClipMessage('clip', 1, 0), '[clip] Removed 1 null feature');
-      assert.equal(api.internal.getClipMessage('erase', 2, 20), '[erase] Removed 2 null features and 20 slivers');
-      assert.equal(api.internal.getClipMessage('clip', 0, 0), '');
+      assert.equal(api.internal.getClipMessage(0, 1), 'Removed 1 sliver');
+      assert.equal(api.internal.getClipMessage(1, 0), 'Removed 1 null feature');
+      assert.equal(api.internal.getClipMessage(2, 20), 'Removed 2 null features and 20 slivers');
+      assert.equal(api.internal.getClipMessage(0, 0), '');
     })
   })
 
@@ -50,13 +50,15 @@ describe('mapshaper-clip-erase.js', function () {
           coordinates: [[1, 1], [2, 1]]
         }]
       }
-      api.applyCommands('-clip bbox=1,0,2,2', input, function(err, data) {
-        assert.deepEqual(JSON.parse(data), output);
+      api.applyCommands('-i input.json -clip bbox=1,0,2,2 -o output.json',
+          {'input.json': input}, function(err, out) {
+        var json = JSON.parse(out['output.json']);
+        assert.deepEqual(json, output);
         done();
       });
     })
 
-    it('Throws APIError on invalid bbox', function(done) {
+    it('Throws UserError on invalid bbox', function(done) {
       var input = {
         type: 'GeometryCollection',
         geometries: [{
@@ -65,7 +67,7 @@ describe('mapshaper-clip-erase.js', function () {
         }]
       }
       api.applyCommands('-clip bbox=1,0,1,2', input, function(err, data) {
-        assert.equal(err.name, 'APIError');
+        assert.equal(err.name, 'UserError');
         done();
       });
     })
@@ -82,10 +84,9 @@ describe('mapshaper-clip-erase.js', function () {
     });
   });
 
-
   describe('Issue #68', function () {
     it('Cell along inside edge of clip shape is retained', function (done) {
-      var cmd = '-i test/test_data/issues/68/cell1.shp -clip test/test_data/issues/68/clipper.shp';
+      var cmd = '-i test/data/issues/68/cell1.shp -clip test/data/issues/68/clipper.shp';
       api.internal.testCommands(cmd, function(err, data) {
         assert.equal(err, null);
         var shapes = data.layers[0].shapes;
@@ -118,12 +119,12 @@ describe('mapshaper-clip-erase.js', function () {
 
     it('Divide arcs', function() {
       var arcs = new ArcCollection(coords);
-      var target = [[[2, 5], [4, 5], [4, 4]],
-          [[4, 4], [4, 2], [2, 2], [2, 4]],
-          [[2, 4], [2, 5]],
-          [[3, 4], [3, 3], [3, 4], [4, 4]],
-          [[4, 4], [5, 4], [5, 1], [1, 1], [1, 4], [2, 4]],
-          [[2, 4], [3, 4]]];
+      var target = [[[2, 5], [4, 5], [4, 4]], // 0: ab*
+          [[4, 4], [4, 2], [2, 2], [2, 4]],   // 1: *cd*
+          [[2, 4], [2, 5]],                   // 2: *a
+          [[3, 4], [3, 3], [3, 4], [4, 4]],   // 3: efe*
+          [[4, 4], [5, 4], [5, 1], [1, 1], [1, 4], [2, 4]], // 4: *ghij*
+          [[2, 4], [3, 4]]];                  // 5: *e
 
       var map = api.internal.divideArcs(arcs);
       assert.deepEqual(arcs.toArray(), target);
@@ -144,10 +145,26 @@ describe('mapshaper-clip-erase.js', function () {
         arcs: new ArcCollection(coords),
         layers: [lyr1, lyr2]
       };
-      var targetShapes = [[[1, 5, 3]]];
-      // var targetShapes = [[[1, 6, 4]]];  // spike is cut off and ignored
       var clippedLyr = api.clipLayer(lyr1, lyr2, dataset);
-      assert.deepEqual(clippedLyr.shapes, targetShapes);
+
+      if (false) {
+        // Older version of snap/cut created this output:
+        assert.deepEqual(clippedLyr.shapes, [[[1, 5, 3]]]);
+
+      } else {
+        // After recent update to snap/cut function, output changed:
+        var targetArcs = [
+          [ [ 2, 5 ], [ 4, 5 ], [ 4, 4 ] ],
+          [ [ 4, 4 ], [ 4, 2 ], [ 2, 2 ], [ 2, 4 ] ],
+          [ [ 2, 4 ], [ 2, 5 ] ],
+          [ [ 3, 4 ], [ 3, 3 ], [ 3, 4 ] ], // spike is cut off
+          [ [ 3, 4 ], [ 4, 4 ] ],
+          [ [ 4, 4 ], [ 5, 4 ], [ 5, 1 ], [ 1, 1 ], [ 1, 4 ], [ 2, 4 ] ],
+          [ [ 2, 4 ], [ 3, 4 ] ]
+        ];
+        assert.deepEqual(clippedLyr.shapes, [[[1, 6, 4]]]);
+        assert.deepEqual(dataset.arcs.toArray(), targetArcs);
+      }
     })
   })
 
@@ -654,8 +671,8 @@ describe('mapshaper-clip-erase.js', function () {
       };
 
       var erasedLyr = api.eraseLayer(lyr1, lyr2, dataset);
-      //var target = [[[0], [~2, ~3]]];
-      var target = [[[0], [~3, ~2]]];
+      var target = [[[0], [~2, ~3]]];
+      //var target = [[[0], [~3, ~2]]];
       assert.deepEqual(erasedLyr.shapes, target);
     })
   })
@@ -906,8 +923,10 @@ describe('mapshaper-clip-erase.js', function () {
       };
 
       var erasedLyr = api.eraseLayer(lyr1, lyr2, dataset);
-      var target = [[[3, ~1]]];
+      var target = [[[2, ~0]]];
+      // var target = [[[3, ~1]]];
       assert.deepEqual(erasedLyr.shapes, target);
+      assert.deepEqual(dataset.arcs.toArray(), coords.slice(1)); // arc 0 is removed (unused)
     })
   })
 

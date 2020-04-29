@@ -1,31 +1,32 @@
-/* @requires
-mapshaper-dissolve2
-mapshaper-shape-utils
-mapshaper-path-division
-*/
+import { findShapesByArcId } from '../paths/mapshaper-path-utils';
+import { stop } from '../utils/mapshaper-logging';
+import { getPolygonDissolver } from '../dissolve/mapshaper-polygon-dissolver';
+import { addIntersectionCuts } from '../paths/mapshaper-intersection-cuts';
+import { getWorldBounds } from '../geom/mapshaper-latlon';
+import cmd from '../mapshaper-cmd';
 
 // WORK IN PROGRESS
 // Remove 'cuts' in an unprojected dataset at the antemeridian and poles.
 // This will be useful when generating rotated projections.
 //
-api.stitch = function(dataset) {
+cmd.stitch = function(dataset) {
   var arcs = dataset.arcs,
       edgeArcs, dissolver, nodes;
   if (!arcs || arcs.isPlanar()) {
-    error("[stitch] Requires lat-lng dataset");
+    stop("Requires lat-lng dataset");
   }
-  if (!MapShaper.snapEdgeArcs(arcs)) {
+  if (!snapEdgeArcs(arcs)) {
     return;
   }
-  nodes = MapShaper.addIntersectionCuts(dataset);
+  nodes = addIntersectionCuts(dataset);
   // console.log(arcs.toArray())
 
   // TODO: implement pathfinding on sphere
-  dissolver = MapShaper.getPolygonDissolver(nodes, !!'spherical');
+  dissolver = getPolygonDissolver(nodes, !!'spherical');
   dataset.layers.forEach(function(lyr) {
     if (lyr.geometry_type != 'polygon') return;
     var shapes = lyr.shapes,
-        edgeShapeIds = MapShaper.findEdgeShapes(shapes, arcs);
+        edgeShapeIds = findEdgeShapes(shapes, arcs);
     edgeShapeIds.forEach(function(i) {
       shapes[i] = dissolver(shapes[i]);
     });
@@ -33,8 +34,8 @@ api.stitch = function(dataset) {
 };
 
 // TODO: test with 'wrapped' datasets
-MapShaper.findEdgeArcs = function(arcs) {
-  var bbox = MapShaper.getWorldBounds(),
+function findEdgeArcs(arcs) {
+  var bbox = getWorldBounds(),
       ids = [];
   for (var i=0, n=arcs.size(); i<n; i++) {
     if (!arcs.arcIsContained(i, bbox)) {
@@ -42,16 +43,16 @@ MapShaper.findEdgeArcs = function(arcs) {
     }
   }
   return ids;
-};
+}
 
-MapShaper.findEdgeShapes = function(shapes, arcs) {
-  var arcIds = MapShaper.findEdgeArcs(arcs);
-  return MapShaper.findShapesByArcId(shapes, arcIds, arcs.size());
-};
+function findEdgeShapes(shapes, arcs) {
+  var arcIds = findEdgeArcs(arcs);
+  return findShapesByArcId(shapes, arcIds, arcs.size());
+}
 
 // Snap arcs that either touch poles or prime meridian to 0 degrees longitude
 // Return array of affected arc ids
-MapShaper.snapEdgeArcs = function(arcs) {
+function snapEdgeArcs(arcs) {
   var data = arcs.getVertexData(),
       xx = data.xx,
       yy = data.yy,
@@ -68,7 +69,6 @@ MapShaper.snapEdgeArcs = function(arcs) {
     if (lng <= xmin + e || lng >= xmax - e) {
       onEdge = true;
       xx[i] = xmin;
-      // console.log(">>> snapped lat:", lat, "lng:", lng, "to lng:", xmin);
     }
     if (lat <= ymin + e) {
       onEdge = true;
@@ -81,4 +81,4 @@ MapShaper.snapEdgeArcs = function(arcs) {
     }
   }
   return onEdge;
-};
+}

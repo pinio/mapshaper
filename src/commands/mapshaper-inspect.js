@@ -1,24 +1,30 @@
-/* @requires mapshaper-info, mapshaper-expressions, mapshaper-shape-geom */
+import { compileValueExpression } from '../expressions/mapshaper-expressions';
+import { getFeatureCount } from '../dataset/mapshaper-layer-utils';
+import { getAttributeTableInfo } from '../commands/mapshaper-info';
+import geom from '../geom/mapshaper-geom';
+import { stop, message } from '../utils/mapshaper-logging';
+import cmd from '../mapshaper-cmd';
+import utils from '../utils/mapshaper-utils';
 
-api.inspect = function(lyr, arcs, opts) {
-  var ids = MapShaper.selectFeatures(lyr, arcs, opts);
+cmd.inspect = function(lyr, arcs, opts) {
+  var ids = selectFeatures(lyr, arcs, opts);
   var msg;
   if (ids.length == 1) {
-    msg = MapShaper.getFeatureInfo(ids[0], lyr, arcs);
+    msg = getFeatureInfo(ids[0], lyr, arcs);
   } else {
-    msg = utils.format("[inspect] Expression matched %d feature%s. Select one feature for details", ids.length, utils.pluralSuffix(ids.length));
+    msg = utils.format("Expression matched %d feature%s. Select one feature for details", ids.length, utils.pluralSuffix(ids.length));
   }
   message(msg);
 };
 
-MapShaper.getFeatureInfo = function(id, lyr, arcs) {
+function getFeatureInfo(id, lyr, arcs) {
     var msg = "Feature " + id + '\n';
-    msg += MapShaper.getShapeInfo(id, lyr, arcs);
-    msg += MapShaper.getTableInfo(lyr, id);
+    msg += getShapeInfo(id, lyr, arcs);
+    msg += getAttributeTableInfo(lyr, id);
     return msg;
-};
+}
 
-MapShaper.getShapeInfo = function(id, lyr, arcs) {
+function getShapeInfo(id, lyr, arcs) {
   var shp = lyr.shapes ? lyr.shapes[id] : null;
   var type = lyr.geometry_type;
   var info, msg;
@@ -31,7 +37,7 @@ MapShaper.getShapeInfo = function(id, lyr, arcs) {
   } else if (type == 'polyline') {
     msg += '  Parts: ' + shp.length + '\n';
   } else if (type == 'polygon') {
-    info = MapShaper.getPolygonInfo(shp, arcs);
+    info = getPolygonInfo(shp, arcs);
     msg += utils.format('  Rings: %d cw, %d ccw\n', info.cw, info.ccw);
     msg += '  Planar area: ' + info.area + '\n';
     if (info.sph_area) {
@@ -39,9 +45,9 @@ MapShaper.getShapeInfo = function(id, lyr, arcs) {
     }
   }
   return msg;
-};
+}
 
-MapShaper.getPolygonInfo = function(shp, arcs) {
+function getPolygonInfo(shp, arcs) {
   var o = {rings: shp.length, cw: 0, ccw: 0, area: 0};
   var area;
   for (var i=0; i<shp.length; i++) {
@@ -57,23 +63,23 @@ MapShaper.getPolygonInfo = function(shp, arcs) {
     o.sph_area = geom.getSphericalShapeArea(shp, arcs);
   }
   return o;
-};
+}
 
-MapShaper.selectFeatures = function(lyr, arcs, opts) {
-  var n = MapShaper.getFeatureCount(lyr),
+function selectFeatures(lyr, arcs, opts) {
+  var n = getFeatureCount(lyr),
       ids = [],
       filter;
   if (!opts.expression) {
-    stop("[inspect] Missing a JS expression for selecting a feature");
+    stop("Missing a JS expression for selecting a feature");
   }
-  filter = MapShaper.compileValueExpression(opts.expression, lyr, arcs);
+  filter = compileValueExpression(opts.expression, lyr, arcs);
   utils.repeat(n, function(id) {
     var result = filter(id);
     if (result === true) {
       ids.push(id);
     } else if (result !== false) {
-      stop("[inspect] Expression must return true or false");
+      stop("Expression must return true or false");
     }
   });
   return ids;
-};
+}

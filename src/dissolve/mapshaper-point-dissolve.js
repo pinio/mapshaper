@@ -1,13 +1,18 @@
-/* @requires mapshaper-expressions */
+import { countMultiPartFeatures } from '../dataset/mapshaper-layer-utils';
+import { compileValueExpression } from '../expressions/mapshaper-expressions';
+import { getLayerBounds } from '../dataset/mapshaper-layer-utils';
+import { probablyDecimalDegreeBounds } from '../geom/mapshaper-latlon';
+import geom from '../geom/mapshaper-geom';
+import { stop } from '../utils/mapshaper-logging';
 
-function dissolvePointLayerGeometry(lyr, getGroupId, opts) {
-  var useSph = !opts.planar && MapShaper.probablyDecimalDegreeBounds(MapShaper.getLayerBounds(lyr));
-  var getWeight = opts.weight ? MapShaper.compileValueExpression(opts.weight, lyr) : null;
+export function dissolvePointGeometry(lyr, getGroupId, opts) {
+  var useSph = !opts.planar && probablyDecimalDegreeBounds(getLayerBounds(lyr));
+  var getWeight = opts.weight ? compileValueExpression(opts.weight, lyr) : null;
   var groups = [];
 
   // TODO: support multipoints
-  if (MapShaper.countMultiPartFeatures(lyr.shapes) !== 0) {
-    stop("[dissolve] Dissolving multi-part points is not supported");
+  if (countMultiPartFeatures(lyr.shapes) !== 0) {
+    stop("Dissolving multi-part points is not supported");
   }
 
   lyr.shapes.forEach(function(shp, i) {
@@ -18,7 +23,7 @@ function dissolvePointLayerGeometry(lyr, getGroupId, opts) {
     if (!p) return;
     if (useSph) {
       tmp = [];
-      lngLatToXYZ(p[0], p[1], tmp);
+      geom.lngLatToXYZ(p[0], p[1], tmp);
       p = tmp;
     }
     groups[groupId] = reducePointCentroid(groups[groupId], p, weight);
@@ -30,7 +35,7 @@ function dissolvePointLayerGeometry(lyr, getGroupId, opts) {
     if (useSph) {
       p1 = memo.centroid;
       p2 = [];
-      xyzToLngLat(p1[0], p1[1], p1[2], p2);
+      geom.xyzToLngLat(p1[0], p1[1], p1[2], p2);
     } else {
       p2 = memo.centroid;
     }

@@ -10,15 +10,15 @@ describe('mapshaper-cli-lib.js', function () {
     });
 
     it('expands wild cards', function() {
-      assert.deepEqual(cli.expandInputFiles(['test/test_data/centroids/*.shp']),
-        ['test/test_data/centroids/a.shp', 'test/test_data/centroids/b.shp']);
+      assert.deepEqual(cli.expandInputFiles(['test/data/features/centroids/*.shp']),
+        ['test/data/features/centroids/a.shp', 'test/data/features/centroids/b.shp']);
     })
 
     it('API error if wild card expansion fails', function() {
       assert.throws(function() {
         cli.expandInputFiles(['missing/dir/*.shp']);
       }, function(e) {
-        return e.name == 'APIError';
+        return e.name == 'UserError';
       });
     });
 
@@ -26,7 +26,7 @@ describe('mapshaper-cli-lib.js', function () {
       assert.throws(function() {
         cli.expandInputFiles(['test/*.shp']);
       }, function(e) {
-        return e.name == 'APIError';
+        return e.name == 'UserError';
       });
     });
 

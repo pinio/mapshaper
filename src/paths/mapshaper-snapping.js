@@ -1,19 +1,22 @@
-/* @requires
-mapshaper-topology,
-mapshaper-geom,
-mapshaper-arcs
-*/
+import { message } from '../utils/mapshaper-logging';
+import utils from '../utils/mapshaper-utils';
+import { getAvgSegment } from '../paths/mapshaper-path-utils';
 
-MapShaper.getHighPrecisionSnapInterval = function(arcs) {
-  var bb = arcs.getBounds();
-  if (!bb.hasBounds()) return 0;
-  var maxCoord = Math.max(Math.abs(bb.xmin), Math.abs(bb.ymin),
-      Math.abs(bb.xmax), Math.abs(bb.ymax));
+// Returns an interval for snapping together coordinates that be co-incident bug
+// have diverged because of floating point rounding errors. Intended to be small
+// enought not not to snap points that should be distinct.
+// This is not a robust method... e.g. some formulas for some inputs may produce
+// errors that are larger than this interval.
+// @coords: Array of relevant coordinates (e.g. bbox coordinates of vertex coordinates
+//   of two intersecting segments).
+//
+export function getHighPrecisionSnapInterval(coords) {
+  var maxCoord = Math.max.apply(null, coords.map(Math.abs));
   return maxCoord * 1e-14;
-};
+}
 
-MapShaper.snapCoords = function(arcs, threshold) {
-    var avgDist = MapShaper.getAvgSegment(arcs),
+export function snapCoords(arcs, threshold) {
+    var avgDist = getAvgSegment(arcs),
         autoSnapDist = avgDist * 0.0025,
         snapDist = autoSnapDist;
 
@@ -21,24 +24,26 @@ MapShaper.snapCoords = function(arcs, threshold) {
     snapDist = threshold;
     message(utils.format("Applying snapping threshold of %s -- %.6f times avg. segment length", threshold, threshold / avgDist));
   }
-
-  var snapCount = MapShaper.snapCoordsByInterval(arcs, snapDist);
+  var snapCount = snapCoordsByInterval(arcs, snapDist);
   if (snapCount > 0) arcs.dedupCoords();
   message(utils.format("Snapped %s point%s", snapCount, utils.pluralSuffix(snapCount)));
-};
+}
 
 // Snap together points within a small threshold
 //
-MapShaper.snapCoordsByInterval = function(arcs, snapDist) {
+export function snapCoordsByInterval(arcs, snapDist) {
   var snapCount = 0,
-      data = arcs.getVertexData();
+      data = arcs.getVertexData(),
+      ids;
 
-  // Get sorted coordinate ids
-  // Consider: speed up sorting -- try bucket sort as first pass.
-  //
-  var ids = utils.sortCoordinateIds(data.xx);
-  for (var i=0, n=ids.length; i<n; i++) {
-    snapCount += snapPoint(i, snapDist, ids, data.xx, data.yy);
+  if (snapDist > 0) {
+    // Get sorted coordinate ids
+    // Consider: speed up sorting -- try bucket sort as first pass.
+    //
+    ids = sortCoordinateIds(data.xx);
+    for (var i=0, n=ids.length; i<n; i++) {
+      snapCount += snapPoint(i, snapDist, ids, data.xx, data.yy);
+    }
   }
   return snapCount;
 
@@ -62,17 +67,17 @@ MapShaper.snapCoordsByInterval = function(arcs, snapDist) {
     }
     return snaps;
   }
-};
+}
 
-utils.sortCoordinateIds = function(a) {
+export function sortCoordinateIds(a) {
   var n = a.length,
       ids = new Uint32Array(n);
   for (var i=0; i<n; i++) {
     ids[i] = i;
   }
-  utils.quicksortIds(a, ids, 0, ids.length-1);
+  quicksortIds(a, ids, 0, ids.length-1);
   return ids;
-};
+}
 
 /*
 // Returns array of array ids, in ascending order.
@@ -130,7 +135,7 @@ utils.bucketSortIds = function(a, n) {
 };
 */
 
-utils.quicksortIds = function (a, ids, lo, hi) {
+function quicksortIds(a, ids, lo, hi) {
   if (hi - lo > 24) {
     var pivot = a[ids[lo + hi >> 1]],
         i = lo,
@@ -147,14 +152,14 @@ utils.quicksortIds = function (a, ids, lo, hi) {
         j--;
       }
     }
-    if (j > lo) utils.quicksortIds(a, ids, lo, j);
-    if (i < hi) utils.quicksortIds(a, ids, i, hi);
+    if (j > lo) quicksortIds(a, ids, lo, j);
+    if (i < hi) quicksortIds(a, ids, i, hi);
   } else {
-    utils.insertionSortIds(a, ids, lo, hi);
+    insertionSortIds(a, ids, lo, hi);
   }
-};
+}
 
-utils.insertionSortIds = function(arr, ids, start, end) {
+function insertionSortIds(arr, ids, start, end) {
   var id, i, j;
   for (j = start + 1; j <= end; j++) {
     id = ids[j];
@@ -163,4 +168,4 @@ utils.insertionSortIds = function(arr, ids, start, end) {
     }
     ids[i+1] = id;
   }
-};
+}

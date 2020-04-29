@@ -1,87 +1,162 @@
-/* @requires mapshaper-arcs, mapshaper-geom */
 
-geom.segmentIntersection = segmentIntersection;
-geom.segmentHit = segmentHit;
-geom.lineIntersection = lineIntersection;
-geom.orient2D = orient2D;
-geom.outsideRange = outsideRange;
+import { getHighPrecisionSnapInterval } from '../paths/mapshaper-snapping';
+import { debug } from '../utils/mapshaper-logging';
+import { distance2D, distanceSq, pointSegDistSq2 } from '../geom/mapshaper-basic-geom';
 
-// Find the interection between two 2D segments
-// Returns 0, 1 or two x, y locations as null, [x, y], or [x1, y1, x2, y2]
+// Find the intersection between two 2D segments
+// Returns 0, 1 or 2 [x, y] locations as null, [x, y], or [x1, y1, x2, y2]
 // Special cases:
-// If the segments touch at an endpoint of both segments, it is not treated as an intersection
-// If the segments touch at a T-intersection, it is treated as an intersection
+// Endpoint-to-endpoint touches are not treated as intersections.
+// If the segments touch at a T-intersection, it is treated as an intersection.
 // If the segments are collinear and partially overlapping, each subsumed endpoint
-//    is counted as an intersection (there will be one or two)
+//    is counted as an intersection (there will be either one or two)
 //
-function segmentIntersection(ax, ay, bx, by, cx, cy, dx, dy) {
-  var hit = segmentHit(ax, ay, bx, by, cx, cy, dx, dy),
-      p = null;
-  if (hit) {
-    p = crossIntersection(ax, ay, bx, by, cx, cy, dx, dy);
-    if (!p) { // collinear if p is null
-      p = collinearIntersection(ax, ay, bx, by, cx, cy, dx, dy);
-    } else if (endpointHit(ax, ay, bx, by, cx, cy, dx, dy)) {
-      p = null; // filter out segments that only intersect at an endpoint
-    }
+export function segmentIntersection(ax, ay, bx, by, cx, cy, dx, dy, epsArg) {
+  // Use a small tolerance interval, so collinear segments and T-intersections
+  // are detected (floating point rounding often causes exact functions to fail)
+  var eps = epsArg >= 0 ? epsArg :
+      getHighPrecisionSnapInterval([ax, ay, bx, by, cx, cy, dx, dy]);
+  var epsSq = eps * eps;
+  var touches, cross;
+  // Detect 0, 1 or 2 'touch' intersections, where a vertex of one segment
+  // is very close to the other segment's linear portion.
+  // One touch indicates either a T-intersection or two overlapping collinear
+  // segments that share an endpoint. Two touches indicates overlapping
+  // collinear segments that do not share an endpoint.
+  touches = findPointSegTouches(epsSq, ax, ay, bx, by, cx, cy, dx, dy);
+  // if (touches) return touches;
+  // Ignore endpoint-only intersections
+  if (!touches && testEndpointHit(epsSq, ax, ay, bx, by, cx, cy, dx, dy)) {
+    return null;
   }
-  return p;
+  // Detect cross intersection
+  cross = findCrossIntersection(ax, ay, bx, by, cx, cy, dx, dy, eps);
+  if (cross && touches) {
+    // Removed this call -- using multiple snap/cut passes seems more
+    // effective for repairing real-world datasets.
+    // return reconcileCrossAndTouches(cross, touches, eps);
+  }
+  return touches || cross || null;
 }
 
-function lineIntersection(ax, ay, bx, by, cx, cy, dx, dy) {
-  var den = determinant2D(bx - ax, by - ay, dx - cx, dy - cy);
-  var eps = 1e-18;
-  var m, p;
-  if (den === 0) return null;
-  m = orient2D(cx, cy, dx, dy, ax, ay) / den;
-  if (den <= eps && den >= -eps) {
-    // tiny denominator = low precision; using one of the endpoints as intersection
-    p = findEndpointInRange(ax, ay, bx, by, cx, cy, dx, dy);
-    if (!p) {
-      trace('[lineIntersection()]');
-      geom.debugSegmentIntersection([], ax, ay, bx, by, cx, cy, dx, dy);
-    }
+function reconcileCrossAndTouches(cross, touches, eps) {
+  var hits;
+  eps = eps || 0;
+  if (touches.length > 2) {
+    // two touches and a cross: cross should be between the touches, intersection at touches
+    hits = touches;
+  } else if (distance2D(cross[0], cross[1], touches[0], touches[1]) <= eps) {
+    // cross is very close to touch point (e.g. small overshoot): intersection at touch point
+    hits = touches;
   } else {
-    p = [ax + m * (bx - ax), ay + m * (by - ay)];
+    // one touch and one cross: use both points
+    hits = touches.concat(cross);
   }
+  return hits;
+}
+
+
+// Find the intersection point of two segments that cross each other,
+// or return null if the segments do not cross.
+// Assumes endpoint intersections have already been detected
+function findCrossIntersection(ax, ay, bx, by, cx, cy, dx, dy, eps) {
+  if (!segmentHit(ax, ay, bx, by, cx, cy, dx, dy)) return null;
+  var den = determinant2D(bx - ax, by - ay, dx - cx, dy - cy);
+  var m = orient2D(cx, cy, dx, dy, ax, ay) / den;
+  var p = [ax + m * (bx - ax), ay + m * (by - ay)];
+  if (Math.abs(den) < 1e-18) {
+    // assume that collinear and near-collinear segment intersections have been
+    // accounted for already.
+    // TODO: is this a valid assumption?
+    return null;
+  }
+
+  // Snap p to a vertex if very close to one
+  // This avoids tiny segments caused by T-intersection overshoots and prevents
+  //   pathfinder errors related to f-p rounding.
+  // (NOTE: this may no longer be needed, since T-intersections are now detected
+  // first)
+  if (eps > 0) {
+    snapIntersectionPoint(p, ax, ay, bx, by, cx, cy, dx, dy, eps);
+  }
+  // Clamp point to x range and y range of both segments
+  // (This may occur due to fp rounding, if one segment is vertical or horizontal)
+  clampIntersectionPoint(p, ax, ay, bx, by, cx, cy, dx, dy);
   return p;
 }
 
-function findEndpointInRange(ax, ay, bx, by, cx, cy, dx, dy) {
-  var p = null;
-  if (!outsideRange(ax, cx, dx) && !outsideRange(ay, cy, dy)) {
+function testEndpointHit(epsSq, ax, ay, bx, by, cx, cy, dx, dy) {
+  return distanceSq(ax, ay, cx, cy) <= epsSq || distanceSq(ax, ay, dx, dy) <= epsSq ||
+    distanceSq(bx, by, cx, cy) <= epsSq || distanceSq(bx, by, dx, dy) <= epsSq;
+}
+
+function findPointSegTouches(epsSq, ax, ay, bx, by, cx, cy, dx, dy) {
+  var touches = [];
+  collectPointSegTouch(touches, epsSq, ax, ay, cx, cy, dx, dy);
+  collectPointSegTouch(touches, epsSq, bx, by, cx, cy, dx, dy);
+  collectPointSegTouch(touches, epsSq, cx, cy, ax, ay, bx, by);
+  collectPointSegTouch(touches, epsSq, dx, dy, ax, ay, bx, by);
+  if (touches.length === 0) return null;
+  if (touches.length > 4) {
+    // Geometrically, more than two touch intersections can not occur.
+    // Is it possible that fp rounding or a bug might result in >2 touches?
+    debug('Intersection detection error');
+  }
+  return touches;
+}
+
+function collectPointSegTouch(arr, epsSq, px, py, ax, ay, bx, by) {
+  // The original point-seg distance function caused errors in test data.
+  // (probably because of large rounding errors with some inputs).
+  // var pab = pointSegDistSq(px, py, ax, ay, bx, by);
+  var pab = pointSegDistSq2(px, py, ax, ay, bx, by);
+  if (pab > epsSq) return; // point is too far from segment to touch
+  var pa = distanceSq(ax, ay, px, py);
+  var pb = distanceSq(bx, by, px, py);
+  if (pa <= epsSq || pb <= epsSq) return; // ignore endpoint hits
+  arr.push(px, py); // T intersection at P and AB
+}
+
+
+// Used by mapshaper-undershoots.js
+// TODO: make more robust, make sure result is compatible with segmentIntersection()
+// (rounding errors currently must be handled downstream)
+export function findClosestPointOnSeg(px, py, ax, ay, bx, by) {
+  var dx = bx - ax,
+      dy = by - ay,
+      dotp = (px - ax) * dx + (py - ay) * dy,
+      abSq = dx * dx + dy * dy,
+      k = abSq === 0 ? -1 : dotp / abSq,
+      eps = 0.1, // 1e-6, // snap to endpoint
+      p;
+  if (k <= eps) {
     p = [ax, ay];
-  } else if (!outsideRange(bx, cx, dx) && !outsideRange(by, cy, dy)) {
+  } else if (k >= 1 - eps) {
     p = [bx, by];
-  } else if (!outsideRange(cx, ax, bx) && !outsideRange(cy, ay, by)) {
-    p = [cx, cy];
-  } else if (!outsideRange(dx, ax, bx) && !outsideRange(dy, ay, by)) {
-    p = [dx, dy];
+  } else {
+    p = [ax + k * dx, ay + k * dy];
   }
   return p;
 }
 
-// Get intersection point if segments are non-collinear, else return null
-// Assumes that segments have been intersect
-function crossIntersection(ax, ay, bx, by, cx, cy, dx, dy) {
-  var p = lineIntersection(ax, ay, bx, by, cx, cy, dx, dy);
-  var nearest;
-  if (p) {
-    // Re-order operands so intersection point is closest to a (better precision)
-    // Source: Jonathan Shewchuk http://www.cs.berkeley.edu/~jrs/meshpapers/robnotes.pdf
-    nearest = nearestPoint(p[0], p[1], ax, ay, bx, by, cx, cy, dx, dy);
-    if (nearest == 1) {
-      p = lineIntersection(bx, by, ax, ay, cx, cy, dx, dy);
-    } else if (nearest == 2) {
-      p = lineIntersection(cx, cy, dx, dy, ax, ay, bx, by);
-    } else if (nearest == 3) {
-      p = lineIntersection(dx, dy, cx, cy, ax, ay, bx, by);
-    }
+function snapIfCloser(p, minDist, x, y, x2, y2) {
+  var dist = distance2D(x, y, x2, y2);
+  if (dist < minDist) {
+    minDist = dist;
+    p[0] = x2;
+    p[1] = y2;
   }
-  if (p) {
-    clampIntersectionPoint(p, ax, ay, bx, by, cx, cy, dx, dy);
-  }
-  return p;
+  return minDist;
+}
+
+function snapIntersectionPoint(p, ax, ay, bx, by, cx, cy, dx, dy, eps) {
+  var x = p[0],
+      y = p[1],
+      snapDist = eps;
+  snapDist = snapIfCloser(p, snapDist, x, y, ax, ay);
+  snapDist = snapIfCloser(p, snapDist, x, y, bx, by);
+  snapDist = snapIfCloser(p, snapDist, x, y, cx, cy);
+  snapDist = snapIfCloser(p, snapDist, x, y, dx, dy);
 }
 
 function clampIntersectionPoint(p, ax, ay, bx, by, cx, cy, dx, dy) {
@@ -93,24 +168,13 @@ function clampIntersectionPoint(p, ax, ay, bx, by, cx, cy, dx, dy) {
   var x = p[0],
       y = p[1];
   // assumes that segment ranges intersect
-  x = geom.clampToCloseRange(x, ax, bx);
-  x = geom.clampToCloseRange(x, cx, dx);
-  y = geom.clampToCloseRange(y, ay, by);
-  y = geom.clampToCloseRange(y, cy, dy);
+  x = clampToCloseRange(x, ax, bx);
+  x = clampToCloseRange(x, cx, dx);
+  y = clampToCloseRange(y, ay, by);
+  y = clampToCloseRange(y, cy, dy);
   p[0] = x;
   p[1] = y;
 }
-
-geom.debugSegmentIntersection = function(p, ax, ay, bx, by, cx, cy, dx, dy) {
-  trace('[debugSegmentIntersection()]');
-  trace('  s1\n  dx:', Math.abs(ax - bx), '\n  dy:', Math.abs(ay - by));
-  trace('  s2\n  dx:', Math.abs(cx - dx), '\n  dy:', Math.abs(cy - dy));
-  trace('  s1 xx:', ax, bx);
-  trace('  s2 xx:', cx, dx);
-  trace('  s1 yy:', ay, by);
-  trace('  s2 yy:', cy, dy);
-  trace('  angle:', geom.signedAngle(ax, ay, bx, by, dx - cx + bx, dy - cy + by));
-};
 
 // a: coordinate of point
 // b: endpoint coordinate of segment
@@ -127,17 +191,17 @@ function outsideRange(a, b, c) {
   return out;
 }
 
-geom.clampToCloseRange = function(a, b, c) {
+function clampToCloseRange(a, b, c) {
   var lim;
-  if (geom.outsideRange(a, b, c)) {
+  if (outsideRange(a, b, c)) {
     lim = Math.abs(a - b) < Math.abs(a - c) ? b : c;
-    if (Math.abs(a - lim) > 1e-16) {
-      trace("[clampToCloseRange()] large clamping interval", a, b, c);
+    if (Math.abs(a - lim) > 1e-15) {
+      debug("[clampToCloseRange()] large clamping interval", a, b, c);
     }
     a = lim;
   }
   return a;
-};
+}
 
 // Determinant of matrix
 //  | a  b |
@@ -150,59 +214,16 @@ function determinant2D(a, b, c, d) {
 // counterclockwise order, a negative value if the points are in clockwise
 // order, and zero if the points are collinear.
 // Source: Jonathan Shewchuk http://www.cs.berkeley.edu/~jrs/meshpapers/robnotes.pdf
-function orient2D(ax, ay, bx, by, cx, cy) {
+export function orient2D(ax, ay, bx, by, cx, cy) {
   return determinant2D(ax - cx, ay - cy, bx - cx, by - cy);
 }
 
 // Source: Sedgewick, _Algorithms in C_
-// (Tried various other functions that failed owing to floating point errors)
-function segmentHit(ax, ay, bx, by, cx, cy, dx, dy) {
+// (Other functions were tried that were more sensitive to floating point errors
+//  than this function)
+export function segmentHit(ax, ay, bx, by, cx, cy, dx, dy) {
   return orient2D(ax, ay, bx, by, cx, cy) *
       orient2D(ax, ay, bx, by, dx, dy) <= 0 &&
       orient2D(cx, cy, dx, dy, ax, ay) *
       orient2D(cx, cy, dx, dy, bx, by) <= 0;
-}
-
-function inside(x, minX, maxX) {
-  return x > minX && x < maxX;
-}
-
-function sortSeg(x1, y1, x2, y2) {
-  return x1 < x2 || x1 == x2 && y1 < y2 ? [x1, y1, x2, y2] : [x2, y2, x1, y1];
-}
-
-// Assume segments s1 and s2 are collinear and overlap; find one or two internal endpoints
-function collinearIntersection(ax, ay, bx, by, cx, cy, dx, dy) {
-  var minX = Math.min(ax, bx, cx, dx),
-      maxX = Math.max(ax, bx, cx, dx),
-      minY = Math.min(ay, by, cy, dy),
-      maxY = Math.max(ay, by, cy, dy),
-      useY = maxY - minY > maxX - minX,
-      coords = [];
-
-  if (useY ? inside(ay, minY, maxY) : inside(ax, minX, maxX)) {
-    coords.push(ax, ay);
-  }
-  if (useY ? inside(by, minY, maxY) : inside(bx, minX, maxX)) {
-    coords.push(bx, by);
-  }
-  if (useY ? inside(cy, minY, maxY) : inside(cx, minX, maxX)) {
-    coords.push(cx, cy);
-  }
-  if (useY ? inside(dy, minY, maxY) : inside(dx, minX, maxX)) {
-    coords.push(dx, dy);
-  }
-  if (coords.length != 2 && coords.length != 4) {
-    coords = null;
-    trace("Invalid collinear segment intersection", coords);
-  } else if (coords.length == 4 && coords[0] == coords[2] && coords[1] == coords[3]) {
-    // segs that meet in the middle don't count
-    coords = null;
-  }
-  return coords;
-}
-
-function endpointHit(ax, ay, bx, by, cx, cy, dx, dy) {
-  return ax == cx && ay == cy || ax == dx && ay == dy ||
-          bx == cx && by == cy || bx == dx && by == dy;
 }

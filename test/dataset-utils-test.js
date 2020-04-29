@@ -1,8 +1,29 @@
 var api = require('../'),
-  assert = require('assert'),
-  format = api.utils.format;
+  assert = require('assert')
 
-describe('mapshaper-database-utils.js', function () {
+describe('mapshaper-dataset-utils.js', function () {
+
+  describe('copyLayerShapes()', function () {
+    it('deep-copy shapes, shallow-copy other attributes', function () {
+      var data = new api.internal.DataTable([{foo: 'bar'}]);
+      var shapes = [[[1, 1]]];
+      var lyr = {
+        geometry_type: 'point',
+        data: data,
+        shapes: shapes,
+        target_id: 1,
+        name: 'layer1'
+      }
+      var copy = api.internal.copyLayerShapes(lyr);
+      assert.strictEqual(data, copy.data);
+      assert(copy.shapes != shapes);
+      assert(copy.shapes[0] != shapes[0]);
+      assert(copy.shapes[0][0] != shapes[0][0]);
+      assert.equal(copy.target_id, 1);
+      assert.equal(copy.name, 'layer1');
+      assert.equal(copy.geometry_type, 'point');
+    })
+  })
 
   describe('copyLayer()', function () {
     it('duplicate data records', function () {
@@ -25,47 +46,4 @@ describe('mapshaper-database-utils.js', function () {
     })
   })
 
-  describe('findMatchingLayers()', function () {
-
-    it("simple match", function () {
-      var layers = [{name: 'layer1'}, {name: 'layer2'}];
-      assert.deepEqual(api.internal.findMatchingLayers(layers, 'layer1'),
-        [{name: 'layer1'}]);
-    })
-
-    it("missing layer", function() {
-      var layers = [{name: 'layer1'}, {name: 'layer2'}];
-      assert.deepEqual(api.internal.findMatchingLayers(layers, 'layer3'),[]);
-    });
-
-    it("comma sep. + wildcard", function() {
-      var layers = [{name: 'layer1'}, {name: 'layer2'}, {name: 'points'}, {name: 'polygons'}];
-      assert.deepEqual(api.internal.findMatchingLayers(layers, 'points,layer*'),
-        [{name: 'layer1'}, {name: 'layer2'}, {name: 'points'}]);
-    })
-
-    it("all layers (*)", function() {
-      var layers = [{name: 'layer1'}, {name: 'layer2'}, {name: 'points'}, {name: 'polygons'}];
-      assert.deepEqual(api.internal.findMatchingLayers(layers, '*'),
-        [{name: 'layer1'}, {name: 'layer2'}, {name: 'points'}, {name: 'polygons'}]);
-    })
-
-    it("numerically indexed layers", function() {
-      var layers = [{name: 'layer1'}, {name: 'layer2'}, {name: 'points'}, {name: 'polygons'}];
-      assert.deepEqual(api.internal.findMatchingLayers(layers, '1,3'),
-        [{name: 'layer1'}, {name: 'points'}]);
-    })
-
-    it("no dupes", function() {
-      var layers = [{name: 'points'}, {name: 'layer2'}];
-      assert.deepEqual(api.internal.findMatchingLayers(layers, '2,layer2,layer*,2'),
-        [{name: 'layer2'}]);
-    })
-
-    it("layers with same suffix", function() {
-        var layers = [{name: 'cz'}, {name: 'cz-points'}];
-        assert.deepEqual(api.internal.findMatchingLayers(layers, 'cz'), [{name: 'cz'}])
-    })
-
-  })
 })

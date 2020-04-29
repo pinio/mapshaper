@@ -3,10 +3,31 @@ var api = require('../'),
 
 describe('mapshaper-filename-utils.js', function () {
 
+  describe('getArcPresenceTest2()', function() {
+    it('handles point layer without error', function() {
+      var arcs = [[[0, 0], [1, 1]], [[1, 1], [2, 2]], [[2, 2], [3, 3]]]; // three arcs
+      var layers = [{
+        geometry_type: 'polyline',
+        shapes: [[[0, ~1]]]
+      }, {
+        geometry_type: 'point',
+        shapes: [[[3, 3]], [[1, 1]]]
+      }];
+      var test = api.internal.getArcPresenceTest2(layers, new api.internal.ArcCollection(arcs));
+      assert.strictEqual(test(0), true);
+      assert.strictEqual(test(~0), true);
+      assert.strictEqual(test(1), true);
+      assert.strictEqual(test(~1), true);
+      assert.strictEqual(test(2), false);
+      assert.strictEqual(test(~2), false);
+      assert.strictEqual(test(3), false);
+    })
+  })
+
   describe('parseLocalPath()', function () {
     var path1 = "shapefiles/usa.shp";
     it(path1, function () {
-      assert.deepEqual(api.utils.parseLocalPath(path1), {
+      assert.deepEqual(api.internal.parseLocalPath(path1), {
         extension: "shp",
         pathbase: "shapefiles/usa",
         basename: "usa",
@@ -16,7 +37,7 @@ describe('mapshaper-filename-utils.js', function () {
     })
 
     it("handle wildcard", function () {
-      assert.deepEqual(api.utils.parseLocalPath("shapefiles/*.shp"), {
+      assert.deepEqual(api.internal.parseLocalPath("shapefiles/*.shp"), {
         extension: "shp",
         pathbase: "shapefiles/*",
         basename: "*",
@@ -26,7 +47,7 @@ describe('mapshaper-filename-utils.js', function () {
     })
 
     it("handle Windows paths", function () {
-      assert.deepEqual(api.utils.parseLocalPath("shapefiles\\*.shp"), {
+      assert.deepEqual(api.internal.parseLocalPath("shapefiles\\*.shp"), {
         extension: "shp",
         pathbase: "shapefiles\\*",
         basename: "*",
@@ -37,7 +58,7 @@ describe('mapshaper-filename-utils.js', function () {
 
     var path2 = "usa.shp";
     it(path2, function () {
-      assert.deepEqual(api.utils.parseLocalPath(path2), {
+      assert.deepEqual(api.internal.parseLocalPath(path2), {
         extension: "shp",
         pathbase: "usa",
         basename: "usa",
@@ -48,7 +69,7 @@ describe('mapshaper-filename-utils.js', function () {
 
     var path3 = "../usa.shp";
     it(path3, function () {
-      assert.deepEqual(api.utils.parseLocalPath(path3), {
+      assert.deepEqual(api.internal.parseLocalPath(path3), {
         extension: "shp",
         pathbase: "../usa",
         basename: "usa",
@@ -59,7 +80,7 @@ describe('mapshaper-filename-utils.js', function () {
 
     var path4 = "shapefiles/usa";
     it(path4, function () {
-      assert.deepEqual(api.utils.parseLocalPath(path4), {
+      assert.deepEqual(api.internal.parseLocalPath(path4), {
         extension: "",
         pathbase: "shapefiles/usa",
         basename: "usa",

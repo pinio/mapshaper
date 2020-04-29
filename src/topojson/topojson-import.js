@@ -1,9 +1,23 @@
-/* @requires topojson-common, mapshaper-point-utils, mapshaper-shape-geom */
+import TopoJSON from '../topojson/topojson-common';
+import GeoJSON from '../geojson/geojson-common';
+import { getRoundingFunction } from '../geom/mapshaper-rounding';
+import utils from '../utils/mapshaper-utils';
+import { ArcCollection } from '../paths/mapshaper-arcs';
+import { importMetadata } from '../dataset/mapshaper-metadata';
+import { layerHasPaths, layerHasPoints, divideFeaturesByType } from '../dataset/mapshaper-layer-utils';
+import { forEachPoint } from '../points/mapshaper-point-utils';
+import { stop } from '../utils/mapshaper-logging';
+import { importCRS } from '../geojson/geojson-import';
+import geom from '../geom/mapshaper-geom';
+import { DataTable } from '../datatable/mapshaper-data-table';
+import { cleanShapes } from '../paths/mapshaper-path-repair-utils';
+import { fixInconsistentFields } from '../datatable/mapshaper-data-utils';
+import { reversePath } from '../paths/mapshaper-path-utils';
 
 // Convert a TopoJSON topology into mapshaper's internal format
 // Side-effect: data in topology is modified
 //
-MapShaper.importTopoJSON = function(topology, opts) {
+export function importTopoJSON(topology, opts) {
   var dataset, arcs, layers;
 
   if (utils.isString(topology)) {
@@ -35,14 +49,16 @@ MapShaper.importTopoJSON = function(topology, opts) {
   }, []);
 
   layers.forEach(function(lyr) {
-    if (MapShaper.layerHasPaths(lyr)) {
-      MapShaper.cleanShapes(lyr.shapes, arcs, lyr.geometry_type);
+    if (layerHasPaths(lyr)) {
+      // Cleaning here may be unnecessary
+      // (cleanPathsAfterImport() is called in mapshaper-import.js)
+      cleanShapes(lyr.shapes, arcs, lyr.geometry_type);
     }
     if (lyr.geometry_type == 'point' && topology.transform) {
       TopoJSON.decodePoints(lyr.shapes, topology.transform);
     }
     if (lyr.data) {
-      MapShaper.fixInconsistentFields(lyr.data.getRecords());
+      fixInconsistentFields(lyr.data.getRecords());
     }
   });
 
@@ -51,12 +67,15 @@ MapShaper.importTopoJSON = function(topology, opts) {
     arcs: arcs,
     info: {}
   };
-  MapShaper.importCRS(dataset, topology);
+  importCRS(dataset, topology);
+  if (topology.metadata) {
+    importMetadata(dataset, topology.metadata);
+  }
   return dataset;
-};
+}
 
 TopoJSON.decodePoints = function(shapes, transform) {
-  MapShaper.forEachPoint(shapes, function(p) {
+  forEachPoint(shapes, function(p) {
     p[0] = p[0] * transform.scale[0] + transform.translate[0];
     p[1] = p[1] * transform.scale[1] + transform.translate[1];
   });
@@ -177,7 +196,7 @@ TopoJSON.GeometryImporter = function(arcs, opts) {
   this.done = function() {
     var layers;
     if (collectionType == 'mixed') {
-      layers = MapShaper.divideFeaturesByType(shapes, properties, types);
+      layers = divideFeaturesByType(shapes, properties, types);
     } else {
       layers = [{
         geometry_type: collectionType,
@@ -193,18 +212,19 @@ TopoJSON.GeometryImporter = function(arcs, opts) {
 // TODO: check that rings are closed
 TopoJSON.importPolygonArcs = function(rings, arcs) {
   var ring = rings[0],
-      area = geom.getPlanarPathArea(ring, arcs),
-      imported = null;
+      imported = null, area;
+  if (!arcs) stop("Invalid TopoJSON file: missing arc data.");
+  area = ring ? geom.getPlanarPathArea(ring, arcs) : null;
   if (!area) {
     return null;
   }
-  if (area < 0) MapShaper.reversePath(ring);
+  if (area < 0) reversePath(ring);
   imported = [ring];
   for (var i=1; i<rings.length; i++) {
     ring = rings[i];
     area = geom.getPlanarPathArea(ring, arcs);
     if (!area) continue;
-    if (area > 0) MapShaper.reversePath(ring);
+    if (area > 0) reversePath(ring);
     imported.push(ring);
   }
   return imported;

@@ -1,4 +1,12 @@
-/* @requires mapshaper-common, mapshaper-geom, mapshaper-shape-iter */
+
+import { calcArcBounds, absArcId } from '../paths/mapshaper-arc-utils';
+import { ArcIter, FilteredArcIter, ShapeIter } from '../paths/mapshaper-shape-iter';
+import { clampIntervalByPct } from '../paths/mapshaper-path-utils';
+import { getThresholdByPct } from '../simplify/mapshaper-simplify-pct';
+import { Bounds } from '../geom/mapshaper-bounds';
+import { probablyDecimalDegreeBounds } from '../geom/mapshaper-latlon';
+import { error } from '../utils/mapshaper-logging';
+import utils from '../utils/mapshaper-utils';
 
 // An interface for managing a collection of paths.
 // Constructor signatures:
@@ -8,7 +16,7 @@
 //
 // ArcCollection(nn, xx, yy)
 //    nn is an array of arc lengths; xx, yy are arrays of concatenated coords;
-function ArcCollection() {
+export function ArcCollection() {
   var _xx, _yy,  // coordinates data
       _ii, _nn,  // indexes, sizes
       _zz, _zlimit = 0, // simplification
@@ -79,12 +87,12 @@ function ArcCollection() {
   }
 
   function initBounds() {
-    var data = calcArcBounds(_xx, _yy, _nn);
+    var data = calcArcBounds2(_xx, _yy, _nn);
     _bb = data.bb;
     _allBounds = data.bounds;
   }
 
-  function calcArcBounds(xx, yy, nn) {
+  function calcArcBounds2(xx, yy, nn) {
     var numArcs = nn.length,
         bb = new Float64Array(numArcs * 4),
         bounds = new Bounds(),
@@ -95,7 +103,7 @@ function ArcCollection() {
       arcLen = nn[i];
       if (arcLen > 0) {
         j = i * 4;
-        b = MapShaper.calcArcBounds(xx, yy, arcOffs, arcLen);
+        b = calcArcBounds(xx, yy, arcOffs, arcLen);
         bb[j++] = b[0];
         bb[j++] = b[1];
         bb[j++] = b[2];
@@ -130,7 +138,10 @@ function ArcCollection() {
   this.getCopy = function() {
     var copy = new ArcCollection(new Int32Array(_nn), new Float64Array(_xx),
         new Float64Array(_yy));
-    if (_zz) copy.setThresholds(new Float64Array(_zz));
+    if (_zz) {
+      copy.setThresholds(new Float64Array(_zz));
+      copy.setRetainedInterval(_zlimit);
+    }
     return copy;
   };
 
@@ -166,7 +177,17 @@ function ArcCollection() {
           n2++;
         }
       }
-      if (n2 < 2) error("Collapsed arc"); // endpoints should be z == Infinity
+      if (n2 == 1) {
+        error("Collapsed arc");
+        // This should not happen (endpoints should be z == Infinity)
+        // Could handle like this, instead of throwing an error:
+        // n2 = 0;
+        // xx2.pop();
+        // yy2.pop();
+        // zz2.pop();
+      } else if (n2 === 0) {
+        // collapsed arc... ignoring
+      }
       nn2[arcId] = n2;
     }
     return {
@@ -211,12 +232,13 @@ function ArcCollection() {
         step = fw ? 1 : -1,
         v1 = fw ? _ii[absId] : _ii[absId] + n - 1,
         v2 = v1,
+        xx = _xx, yy = _yy, zz = _zz,
         count = 0;
 
     for (var j = 1; j < n; j++) {
       v2 += step;
-      if (zlim === 0 || _zz[v2] >= zlim) {
-        cb(v1, v2, _xx, _yy);
+      if (zlim === 0 || zz[v2] >= zlim) {
+        cb(v1, v2, xx, yy);
         v1 = v2;
         count++;
       }
@@ -234,11 +256,16 @@ function ArcCollection() {
   };
 
   this.transformPoints = function(f) {
-    var xx = _xx, yy = _yy, p;
-    for (var i=0, n=xx.length; i<n; i++) {
-      p = f(xx[i], yy[i]);
-      xx[i] = p[0];
-      yy[i] = p[1];
+    var xx = _xx, yy = _yy, arcId = -1, n = 0, p;
+    for (var i=0, len=xx.length; i<len; i++, n--) {
+      while (n === 0) {
+        n = _nn[++arcId];
+      }
+      p = f(xx[i], yy[i], arcId);
+      if (p) {
+        xx[i] = p[0];
+        yy[i] = p[1];
+      }
     }
     initBounds();
   };
@@ -278,26 +305,29 @@ function ArcCollection() {
   // Return null if no arcs were re-indexed (and no arcs were removed)
   //
   this.filter = function(cb) {
-    var map = new Int32Array(this.size()),
+    var test = function(i) {
+      return cb(this.getArcIter(i), i);
+    }.bind(this);
+    return this.deleteArcs(test);
+  };
+
+  this.deleteArcs = function(test) {
+    var n = this.size(),
+        map = new Int32Array(n),
         goodArcs = 0,
         goodPoints = 0;
-    for (var i=0, n=this.size(); i<n; i++) {
-      if (cb(this.getArcIter(i), i)) {
+    for (var i=0; i<n; i++) {
+      if (test(i)) {
         map[i] = goodArcs++;
         goodPoints += _nn[i];
       } else {
         map[i] = -1;
       }
     }
-    if (goodArcs === this.size()) {
-      return null;
-    } else {
+    if (goodArcs < n) {
       condenseArcs(map);
-      if (goodArcs === 0) {
-        // no remaining arcs
-      }
-      return map;
     }
+    return map;
   };
 
   function condenseArcs(map) {
@@ -330,7 +360,7 @@ function ArcCollection() {
         arcLen, arcLen2;
     while (arcId < arcCount) {
       arcLen = _nn[arcId];
-      arcLen2 = MapShaper.dedupArcCoords(i, i2, arcLen, _xx, _yy, zz);
+      arcLen2 = dedupArcCoords(i, i2, arcLen, _xx, _yy, zz);
       _nn[arcId] = arcLen2;
       i += arcLen;
       i2 += arcLen2;
@@ -351,6 +381,7 @@ function ArcCollection() {
     };
   };
 
+  // @nth: index of vertex. ~(idx) starts from the opposite endpoint
   this.indexOfVertex = function(arcId, nth) {
     var absId = arcId < 0 ? ~arcId : arcId,
         len = _nn[absId];
@@ -482,7 +513,7 @@ function ArcCollection() {
       _zlimit = 0;
     } else {
       _zlimit = this.getThresholdByPct(pct);
-      _zlimit = MapShaper.clampIntervalByPct(_zlimit, pct);
+      _zlimit = clampIntervalByPct(_zlimit, pct);
     }
     return this;
   };
@@ -512,10 +543,11 @@ function ArcCollection() {
     return _zz.subarray(start, end);
   };
 
-  this.getPctByThreshold = function(val) {
+  // nth (optional): sample every nth threshold (use estimate for speed)
+  this.getPctByThreshold = function(val, nth) {
     var arr, rank, pct;
     if (val > 0) {
-      arr = this.getRemovableThresholds();
+      arr = this.getRemovableThresholds(nth);
       rank = utils.findRankByValue(arr, val);
       pct = arr.length > 0 ? 1 - (rank - 1) / arr.length : 1;
     } else {
@@ -524,23 +556,9 @@ function ArcCollection() {
     return pct;
   };
 
-  this.getThresholdByPct = function(pct) {
-    var tmp = this.getRemovableThresholds(),
-        rank, z;
-    if (tmp.length === 0) { // No removable points
-      rank = 0;
-    } else {
-      rank = Math.floor((1 - pct) * (tmp.length + 2));
-    }
-
-    if (rank <= 0) {
-      z = 0;
-    } else if (rank > tmp.length) {
-      z = Infinity;
-    } else {
-      z = utils.findValueByRank(tmp, rank);
-    }
-    return z;
+  // nth (optional): sample every nth threshold (use estimate for speed)
+  this.getThresholdByPct = function(pct, nth) {
+    return getThresholdByPct(pct, this, nth);
   };
 
   this.arcIntersectsBBox = function(i, b1) {
@@ -563,7 +581,7 @@ function ArcCollection() {
 
   // TODO: allow datasets in lat-lng coord range to be flagged as planar
   this.isPlanar = function() {
-    return !MapShaper.probablyDecimalDegreeBounds(this.getBounds());
+    return !probablyDecimalDegreeBounds(this.getBounds());
   };
 
   this.size = function() {
@@ -573,6 +591,8 @@ function ArcCollection() {
   this.getPointCount = function() {
     return _xx && _xx.length || 0;
   };
+
+  this.getFilteredPointCount = getFilteredPointCount;
 
   this.getBounds = function() {
     return _allBounds.clone();
@@ -604,6 +624,7 @@ function ArcCollection() {
     return bbox;
   };
 
+  // TODO: move this and similar methods out of ArcCollection
   this.getMultiShapeBounds = function(shapeIds, bounds) {
     bounds = bounds || new Bounds();
     if (shapeIds) { // handle null shapes
@@ -621,18 +642,8 @@ function ArcCollection() {
   };
 }
 
-ArcCollection.prototype.inspect = function() {
-  var n = this.getPointCount(), str;
-  if (n < 50) {
-    str = JSON.stringify(this.toArray());
-  } else {
-    str = '[ArcCollection (' + this.size() + ')]';
-  }
-  return str;
-};
-
 // Remove duplicate coords and NaNs
-MapShaper.dedupArcCoords = function(src, dest, arcLen, xx, yy, zz) {
+function dedupArcCoords(src, dest, arcLen, xx, yy, zz) {
   var n = 0, n2 = 0; // counters
   var x, y, i, j, keep;
   while (n < arcLen) {
@@ -652,4 +663,4 @@ MapShaper.dedupArcCoords = function(src, dest, arcLen, xx, yy, zz) {
     n++;
   }
   return n2 > 1 ? n2 : 0;
-};
+}
